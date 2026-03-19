@@ -15,9 +15,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Start ssh-agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
@@ -28,32 +25,34 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H 204.168.165.229 >> ~/.ssh/known_hosts
 
-      - name: Create app dir on VPS
+      - name: Clone or update repo on VPS
         run: |
-          ssh ${{ secrets.VPS_USER }}@204.168.165.229 "mkdir -p '${{ secrets.VPS_APP_DIR }}'"
+          ssh ${{ secrets.VPS_USER }}@204.168.165.229 "
+            set -e
+            APP_DIR='${{ secrets.VPS_APP_DIR }}'
+            REPO_URL='https://github.com/JarionC/faceless-dancer-site.git'
 
-      - name: Copy repo to VPS
-        run: |
-          tar \
-            --exclude=.git \
-            --exclude=.github \
-            -czf - . | ssh ${{ secrets.VPS_USER }}@204.168.165.229 "
-              set -e
-              cd '${{ secrets.VPS_APP_DIR }}'
-              find . -mindepth 1 -maxdepth 1 ! -name '.env' -exec rm -rf {} +
-              tar -xzf -
-            "
+            mkdir -p \"\$APP_DIR\"
+
+            if [ ! -d \"\$APP_DIR/.git\" ]; then
+              rm -rf \"\$APP_DIR\"
+              git clone \"\$REPO_URL\" \"\$APP_DIR\"
+            else
+              cd \"\$APP_DIR\"
+              git fetch origin
+              git reset --hard origin/main
+            fi
+          "
 
       - name: Write production env on VPS
         run: |
-          printf '%s\n' "${{ secrets.ENV_FILE }}" | \
-          ssh ${{ secrets.VPS_USER }}@204.168.165.229 "cat > '${{ secrets.VPS_APP_DIR }}/.env'"
+          printf '%s\n' "${{ secrets.ENV_FILE }}" | ssh ${{ secrets.VPS_USER }}@204.168.165.229 "cat > '${{ secrets.VPS_APP_DIR }}/.env'"
 
       - name: Deploy containers
         run: |
           ssh ${{ secrets.VPS_USER }}@204.168.165.229 "
             set -e
             cd '${{ secrets.VPS_APP_DIR }}'
-            docker-compose -f docker-compose.yml down --remove-orphans || true
-            docker-compose -f docker-compose.yml up -d --build --remove-orphans
+            docker-compose down || true
+            docker-compose up -d --build
           "
