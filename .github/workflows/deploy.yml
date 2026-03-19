@@ -28,23 +28,32 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H 204.168.165.229 >> ~/.ssh/known_hosts
 
-      - name: Sync repo to VPS
+      - name: Create app dir on VPS
         run: |
-          rsync -az --delete \
-            --exclude ".git" \
-            --exclude ".github" \
-            ./ ${{ secrets.VPS_USER }}@204.168.165.229:${{ secrets.VPS_APP_DIR }}/
+          ssh ${{ secrets.VPS_USER }}@204.168.165.229 "mkdir -p '${{ secrets.VPS_APP_DIR }}'"
+
+      - name: Copy repo to VPS
+        run: |
+          tar \
+            --exclude=.git \
+            --exclude=.github \
+            -czf - . | ssh ${{ secrets.VPS_USER }}@204.168.165.229 "
+              set -e
+              cd '${{ secrets.VPS_APP_DIR }}'
+              find . -mindepth 1 -maxdepth 1 ! -name '.env' -exec rm -rf {} +
+              tar -xzf -
+            "
 
       - name: Write production env on VPS
         run: |
-          ssh ${{ secrets.VPS_USER }}@204.168.165.229 "mkdir -p '${{ secrets.VPS_APP_DIR }}'"
-          printf '%s\n' "${{ secrets.ENV_FILE }}" | ssh ${{ secrets.VPS_USER }}@204.168.165.229 "cat > '${{ secrets.VPS_APP_DIR }}/.env'"
+          printf '%s\n' "${{ secrets.ENV_FILE }}" | \
+          ssh ${{ secrets.VPS_USER }}@204.168.165.229 "cat > '${{ secrets.VPS_APP_DIR }}/.env'"
 
       - name: Deploy containers
         run: |
           ssh ${{ secrets.VPS_USER }}@204.168.165.229 "
             set -e
             cd '${{ secrets.VPS_APP_DIR }}'
-            docker-compose down --remove-orphans || true
-            docker-compose up -d --build --remove-orphans
+            docker-compose -f docker-compose.yml down --remove-orphans || true
+            docker-compose -f docker-compose.yml up -d --build --remove-orphans
           "
