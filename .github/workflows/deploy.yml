@@ -15,49 +15,40 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Start ssh-agent
-        uses: webfactory/ssh-agent@v0.9.0
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Copy repo to VPS
+        uses: appleboy/scp-action@v0.1.7
         with:
-          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
-
-      - name: Add VPS to known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -H 204.168.165.229 >> ~/.ssh/known_hosts
-
-      - name: Clone or update repo on VPS
-        run: |
-          ssh ${{ secrets.VPS_USER }}@204.168.165.229 "
-            set -e
-            APP_DIR='${{ secrets.VPS_APP_DIR }}'
-            REPO_URL='https://github.com/JarionC/faceless-dancer-site.git'
-
-            if ! command -v git >/dev/null 2>&1; then
-              apt update
-              apt install -y git
-            fi
-
-            if [ ! -d \"\$APP_DIR/.git\" ]; then
-              rm -rf \"\$APP_DIR\"
-              git clone \"\$REPO_URL\" \"\$APP_DIR\"
-            else
-              cd \"\$APP_DIR\"
-              git fetch origin
-              git reset --hard origin/main
-            fi
-          "
+          host: 204.168.165.229
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "."
+          target: ${{ secrets.VPS_APP_DIR }}
+          rm: true
+          strip_components: 0
 
       - name: Write .env on VPS
+        uses: appleboy/ssh-action@v1.0.3
         env:
           ENV_FILE: ${{ secrets.ENV_FILE }}
-        run: |
-          ssh ${{ secrets.VPS_USER }}@204.168.165.229 "cat > '${{ secrets.VPS_APP_DIR }}/.env'" <<< "$ENV_FILE"
+        with:
+          host: 204.168.165.229
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: ENV_FILE
+          script: |
+            mkdir -p "${{ secrets.VPS_APP_DIR }}"
+            printf "%s" "$ENV_FILE" > "${{ secrets.VPS_APP_DIR }}/.env"
 
       - name: Deploy containers
-        run: |
-          ssh ${{ secrets.VPS_USER }}@204.168.165.229 "
-            set -e
-            cd '${{ secrets.VPS_APP_DIR }}'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 204.168.165.229
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd "${{ secrets.VPS_APP_DIR }}"
             docker-compose down || true
             docker-compose up -d --build
-          "
