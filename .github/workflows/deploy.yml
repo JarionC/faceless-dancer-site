@@ -25,11 +25,10 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H 204.168.165.229 >> ~/.ssh/known_hosts
 
-      - name: Deploy on VPS
+      - name: Clone or update repo on VPS
         run: |
           ssh ${{ secrets.VPS_USER }}@204.168.165.229 "
             set -e
-
             APP_DIR='${{ secrets.VPS_APP_DIR }}'
             REPO_URL='https://github.com/JarionC/faceless-dancer-site.git'
 
@@ -38,24 +37,23 @@ jobs:
               apt install -y git
             fi
 
-            mkdir -p \"\$APP_DIR\"
-
             if [ ! -d \"\$APP_DIR/.git\" ]; then
               rm -rf \"\$APP_DIR\"
               git clone \"\$REPO_URL\" \"\$APP_DIR\"
             else
               cd \"\$APP_DIR\"
-              git fetch origin main
+              git fetch origin
               git reset --hard origin/main
             fi
           "
 
-      - name: Write env file on VPS
+      - name: Write .env on VPS
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
         run: |
-          echo "${{ secrets.ENV_FILE_B64 }}" | base64 -d | \
-          ssh ${{ secrets.VPS_USER }}@204.168.165.229 "cat > '${{ secrets.VPS_APP_DIR }}/.env'"
+          ssh ${{ secrets.VPS_USER }}@204.168.165.229 "cat > '${{ secrets.VPS_APP_DIR }}/.env'" <<< "$ENV_FILE"
 
-      - name: Rebuild and restart
+      - name: Deploy containers
         run: |
           ssh ${{ secrets.VPS_USER }}@204.168.165.229 "
             set -e
