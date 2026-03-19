@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: faceless-dancer-server
+    env_file:
+      - ./.env
+    environment:
+      DATABASE_PATH: /app/data/faceless-dancer.db
+    volumes:
+      - db-data:/app/data
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    container_name: faceless-dancer-client
+    depends_on:
+      - server
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  db-data:
