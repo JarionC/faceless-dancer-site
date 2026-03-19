@@ -37,18 +37,13 @@ jobs:
 
       - name: Write production env on VPS
         run: |
-          ssh ${{ secrets.VPS_USER }}@204.168.165.229 << EOF
-            set -e
-            mkdir -p "${{ secrets.VPS_APP_DIR }}"
-            cat > "${{ secrets.VPS_APP_DIR }}/.env" << 'EOT'
-${{ secrets.ENV_FILE }}
-EOT
-          EOF
+          ssh ${{ secrets.VPS_USER }}@204.168.165.229 "mkdir -p '${{ secrets.VPS_APP_DIR }}'"
+          printf '%s\n' "${{ secrets.ENV_FILE }}" | ssh ${{ secrets.VPS_USER }}@204.168.165.229 "cat > '${{ secrets.VPS_APP_DIR }}/.env'"
 
       - name: Deploy containers
         run: |
-          ssh ${{ secrets.VPS_USER }}@204.168.165.229 << EOF
+          ssh ${{ secrets.VPS_USER }}@204.168.165.229 "
             set -e
-            cd "${{ secrets.VPS_APP_DIR }}"
+            cd '${{ secrets.VPS_APP_DIR }}'
             docker-compose up -d --build --remove-orphans
-          EOF
+          "
