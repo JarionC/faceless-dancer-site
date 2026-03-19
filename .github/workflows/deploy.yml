@@ -45,5 +45,6 @@ jobs:
           ssh ${{ secrets.VPS_USER }}@204.168.165.229 "
             set -e
             cd '${{ secrets.VPS_APP_DIR }}'
-            docker-compose up -d --build --remove-orphans
+            docker compose down --remove-orphans || true
+            docker compose up -d --build --remove-orphans
           "
