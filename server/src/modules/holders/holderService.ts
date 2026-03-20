@@ -5,9 +5,26 @@ import { getSiteSettings } from "../siteSettings/service.js";
 const connection = new Connection(env.SOLANA_RPC_URL, "confirmed");
 
 export async function checkHolderEligibility(ownerPublicKey: string): Promise<boolean> {
-  const owner = new PublicKey(ownerPublicKey);
-  const holderMint = new PublicKey(getSiteSettings().tokenAddress);
-  const accounts = await connection.getParsedTokenAccountsByOwner(owner, { mint: holderMint });
+  const tokenAddress = getSiteSettings().tokenAddress.trim();
+  if (!tokenAddress) {
+    return false;
+  }
+
+  let owner: PublicKey;
+  let holderMint: PublicKey;
+  try {
+    owner = new PublicKey(ownerPublicKey);
+    holderMint = new PublicKey(tokenAddress);
+  } catch {
+    return false;
+  }
+
+  let accounts;
+  try {
+    accounts = await connection.getParsedTokenAccountsByOwner(owner, { mint: holderMint });
+  } catch {
+    return false;
+  }
 
   const total = accounts.value.reduce((sum, account) => {
     const parsedAmount =

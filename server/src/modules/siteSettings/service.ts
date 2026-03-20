@@ -39,7 +39,7 @@ export function getSiteSettings(): SiteSettings {
     dexscreenerUrl: row?.dexscreener_url ?? env.SITE_DEXSCREENER_URL,
     showDexscreener: row ? row.show_dexscreener === 1 : env.siteShowDexscreener,
     pumpFunUrl: row?.pump_fun_url ?? env.PUMP_FUN_URL,
-    tokenAddress: row ? row.token_address ?? "" : env.HOLDER_TOKEN_MINT,
+    tokenAddress: row?.token_address ?? "",
   };
 }
 

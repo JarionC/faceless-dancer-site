@@ -107,7 +107,13 @@ router.post("/verify", async (req, res) => {
     return res.status(401).json({ error: "Signature verification failed" });
   }
 
-  const isHolder = await checkHolderEligibility(publicKey);
+  let isHolder = false;
+  try {
+    isHolder = await checkHolderEligibility(publicKey);
+  } catch (error) {
+    console.error("Holder eligibility check failed", error);
+    isHolder = false;
+  }
   const isAdmin = env.adminWallets.includes(publicKey);
 
   const existingUser = db
