@@ -13,6 +13,7 @@ const defaultSiteSettings: SiteSettings = {
   showTwitter: true,
   youtubeUrl: "",
   showYoutube: true,
+  youtubeLiveChannelId: "",
   telegramUrl: "",
   showTelegram: true,
   dexscreenerUrl: "",

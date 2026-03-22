@@ -34,6 +34,7 @@ const envSchema = z.object({
   SITE_SHOW_TWITTER: z.enum(["true", "false"]).default("true"),
   SITE_YOUTUBE_URL: optionalUrlSchema,
   SITE_SHOW_YOUTUBE: z.enum(["true", "false"]).default("true"),
+  SITE_YOUTUBE_LIVE_CHANNEL_ID: z.string().default(""),
   SITE_TELEGRAM_URL: optionalUrlSchema,
   SITE_SHOW_TELEGRAM: z.enum(["true", "false"]).default("true"),
   SITE_DEXSCREENER_URL: optionalUrlSchema,

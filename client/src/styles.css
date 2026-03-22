@@ -205,7 +205,8 @@ button:hover {
 }
 
 .hero__main-bg,
-.hero__main-image {
+.hero__main-image,
+.hero__stream {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -223,6 +224,12 @@ button:hover {
 .hero__main-image {
   object-fit: contain;
   z-index: 1;
+}
+
+.hero__stream {
+  z-index: 1;
+  border: 0;
+  background: #000;
 }
 
 .feature-card__shape,

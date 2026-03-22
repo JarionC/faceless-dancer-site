@@ -1,6 +1,6 @@
 import type { SiteSettings } from "../lib/api";
-import heroMainImage from "../assets/hero/hero_main.png";
 import heroMainBgImage from "../assets/hero/hero-main-bg.jpeg";
+import heroMainImage from "../assets/hero/hero_main.png";
 import logoImage from "../assets/hero/logo.png";
 
 interface Props {
@@ -9,6 +9,10 @@ interface Props {
 
 export function HeroSection({ settings }: Props) {
   const tokenAddressLabel = settings.tokenAddress || "Soon";
+  const channelId = settings.youtubeLiveChannelId.trim();
+  const liveEmbedUrl = channelId
+    ? `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(channelId)}&autoplay=1&mute=1`
+    : "";
   const socialLinks = [
     { label: "X / Twitter", href: settings.twitterUrl, visible: settings.showTwitter },
     { label: "YouTube", href: settings.youtubeUrl, visible: settings.showYoutube },
@@ -69,7 +73,18 @@ export function HeroSection({ settings }: Props) {
       <div className="hero__visual">
         <div className="hero__visual-frame">
           <img className="hero__main-bg" src={heroMainBgImage} alt="" aria-hidden="true" />
-          <img className="hero__main-image" src={heroMainImage} alt="The Faceless Dancer hero artwork" />
+          {liveEmbedUrl ? (
+            <iframe
+              className="hero__stream"
+              src={liveEmbedUrl}
+              title="The Faceless Dancer live stream"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+            />
+          ) : (
+            <img className="hero__main-image" src={heroMainImage} alt="The Faceless Dancer hero artwork" />
+          )}
         </div>
       </div>
     </section>

@@ -7,6 +7,7 @@ interface SiteSettingsRow {
   show_twitter: number;
   youtube_url: string | null;
   show_youtube: number;
+  youtube_live_channel_id: string | null;
   telegram_url: string | null;
   show_telegram: number;
   dexscreener_url: string | null;
@@ -18,7 +19,7 @@ interface SiteSettingsRow {
 function readRow() {
   return db
     .prepare(
-      `SELECT twitter_url, show_twitter, youtube_url, show_youtube, telegram_url, show_telegram, dexscreener_url, show_dexscreener, pump_fun_url, token_address
+      `SELECT twitter_url, show_twitter, youtube_url, show_youtube, youtube_live_channel_id, telegram_url, show_telegram, dexscreener_url, show_dexscreener, pump_fun_url, token_address
        FROM site_settings
        WHERE id = 1
        LIMIT 1`
@@ -34,6 +35,7 @@ export function getSiteSettings(): SiteSettings {
     showTwitter: row ? row.show_twitter === 1 : env.siteShowTwitter,
     youtubeUrl: row?.youtube_url ?? env.SITE_YOUTUBE_URL,
     showYoutube: row ? row.show_youtube === 1 : env.siteShowYoutube,
+    youtubeLiveChannelId: row?.youtube_live_channel_id ?? env.SITE_YOUTUBE_LIVE_CHANNEL_ID,
     telegramUrl: row?.telegram_url ?? env.SITE_TELEGRAM_URL,
     showTelegram: row ? row.show_telegram === 1 : env.siteShowTelegram,
     dexscreenerUrl: row?.dexscreener_url ?? env.SITE_DEXSCREENER_URL,
@@ -51,6 +53,7 @@ export function saveSiteSettings(settings: SiteSettings) {
       show_twitter,
       youtube_url,
       show_youtube,
+      youtube_live_channel_id,
       telegram_url,
       show_telegram,
       dexscreener_url,
@@ -58,12 +61,13 @@ export function saveSiteSettings(settings: SiteSettings) {
       pump_fun_url,
       token_address,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(id) DO UPDATE SET
       twitter_url = excluded.twitter_url,
       show_twitter = excluded.show_twitter,
       youtube_url = excluded.youtube_url,
       show_youtube = excluded.show_youtube,
+      youtube_live_channel_id = excluded.youtube_live_channel_id,
       telegram_url = excluded.telegram_url,
       show_telegram = excluded.show_telegram,
       dexscreener_url = excluded.dexscreener_url,
@@ -77,6 +81,7 @@ export function saveSiteSettings(settings: SiteSettings) {
     settings.showTwitter ? 1 : 0,
     settings.youtubeUrl || null,
     settings.showYoutube ? 1 : 0,
+    settings.youtubeLiveChannelId.trim() || null,
     settings.telegramUrl || null,
     settings.showTelegram ? 1 : 0,
     settings.dexscreenerUrl || null,

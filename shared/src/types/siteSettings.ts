@@ -3,6 +3,7 @@ export interface SiteSettings {
   showTwitter: boolean;
   youtubeUrl: string;
   showYoutube: boolean;
+  youtubeLiveChannelId: string;
   telegramUrl: string;
   showTelegram: boolean;
   dexscreenerUrl: string;

@@ -88,6 +88,22 @@ export function AdminConsoleCard({ enabled, settings, onSettingsSaved }: Props) 
               </select>
             </label>
             <label>
+              YouTube Live Channel ID
+              <input
+                value={siteSettings.youtubeLiveChannelId}
+                onInput={(e) =>
+                  setSiteSettings((prev) => ({
+                    ...prev,
+                    youtubeLiveChannelId: (e.target as HTMLInputElement).value,
+                  }))
+                }
+                placeholder="UC..."
+              />
+              <div className="small">
+                Find it in YouTube Studio or YouTube Settings &gt; Advanced settings as Channel ID.
+              </div>
+            </label>
+            <label>
               Telegram URL
               <input value={siteSettings.telegramUrl} onInput={(e) => setSiteSettings((prev) => ({ ...prev, telegramUrl: (e.target as HTMLInputElement).value }))} />
             </label>

@@ -7,6 +7,7 @@ export const siteSettingsSchema = z.object({
   showTwitter: z.boolean().default(true),
   youtubeUrl: optionalUrlSchema.default(""),
   showYoutube: z.boolean().default(true),
+  youtubeLiveChannelId: z.string().trim().default(""),
   telegramUrl: optionalUrlSchema.default(""),
   showTelegram: z.boolean().default(true),
   dexscreenerUrl: optionalUrlSchema.default(""),
