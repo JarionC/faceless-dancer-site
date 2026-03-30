@@ -1,0 +1,49 @@
+{
+  "id": "host-check-1774376692",
+  "savedAtIso": "2026-03-24T18:24:54.308Z",
+  "entry": {
+    "durationSeconds": 2,
+    "name": "host-check-1774376692",
+    "fileName": "hostcheck.wav"
+  },
+  "audio": {
+    "fileName": "hostcheck.wav",
+    "mimeType": "audio/wav",
+    "storedFileName": "host-check-1774376692.wav"
+  },
+  "majorBeats": [
+    {
+      "strength": 0.8,
+      "timeSeconds": 0.5
+    }
+  ],
+  "sourceEvents": [],
+  "separatedSources": [
+    {
+      "label": "guitar",
+      "fileName": "guitar.wav"
+    },
+    {
+      "label": "piano",
+      "fileName": "piano.wav"
+    },
+    {
+      "label": "vocals",
+      "fileName": "vocals.wav"
+    },
+    {
+      "label": "drums",
+      "fileName": "drums.wav"
+    },
+    {
+      "label": "other",
+      "fileName": "other.wav"
+    },
+    {
+      "label": "bass",
+      "fileName": "bass.wav"
+    }
+  ],
+  "separationCompletedAtIso": "2026-03-24T18:25:16.922Z",
+  "separatedStemArchiveDir": "/app/beat-storage/stem-runs/host-check-1774376692/20260324T182515Z-350"
+}

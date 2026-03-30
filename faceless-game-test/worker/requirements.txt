@@ -1,0 +1,8 @@
+numpy<2
+soundfile
+bs-roformer-infer
+huggingface_hub[hf_transfer]
+hf_xet
+hf_transfer
+librosa==0.10.2.post1
+basic-pitch==0.4.0

@@ -1,0 +1,13 @@
+{
+  "entryId": "verify-fix-1774376953",
+  "savedAtIso": "2026-03-24T18:29:27Z",
+  "stemCount": 6,
+  "stems": [
+    "guitar.wav",
+    "piano.wav",
+    "vocals.wav",
+    "drums.wav",
+    "other.wav",
+    "bass.wav"
+  ]
+}

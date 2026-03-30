@@ -1,0 +1,49 @@
+{
+  "id": "verify-fix-1774376953",
+  "savedAtIso": "2026-03-24T18:29:15.091Z",
+  "entry": {
+    "fileName": "verifyfix.wav",
+    "durationSeconds": 2.4,
+    "name": "verify-fix-1774376953"
+  },
+  "audio": {
+    "fileName": "verifyfix.wav",
+    "mimeType": "audio/wav",
+    "storedFileName": "verify-fix-1774376953.wav"
+  },
+  "majorBeats": [
+    {
+      "strength": 0.8,
+      "timeSeconds": 0.4
+    }
+  ],
+  "sourceEvents": [],
+  "separatedSources": [
+    {
+      "label": "guitar",
+      "fileName": "guitar.wav"
+    },
+    {
+      "label": "piano",
+      "fileName": "piano.wav"
+    },
+    {
+      "label": "vocals",
+      "fileName": "vocals.wav"
+    },
+    {
+      "label": "drums",
+      "fileName": "drums.wav"
+    },
+    {
+      "label": "other",
+      "fileName": "other.wav"
+    },
+    {
+      "label": "bass",
+      "fileName": "bass.wav"
+    }
+  ],
+  "separationCompletedAtIso": "2026-03-24T18:29:29.710Z",
+  "separatedStemArchiveDir": "/app/beat-storage/stem-runs/verify-fix-1774376953/20260324T182927Z-724"
+}

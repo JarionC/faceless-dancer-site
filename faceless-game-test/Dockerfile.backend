@@ -1,0 +1,13 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY server ./server
+
+ENV BEAT_API_PORT=8787
+ENV BEAT_STORAGE_DIR=/app/beat-storage
+ENV BEAT_API_MAX_BODY_BYTES=52428800
+
+EXPOSE 8787
+
+CMD ["node", "server/index.mjs"]
