@@ -329,6 +329,18 @@ def _effective_bs_roformer_overrides():
     }
 
 
+def _resolve_infer_device():
+    requested = _parse_nonempty_string(
+        os.environ.get("BS_ROFORMER_INFER_DEVICE", "cpu"),
+        "cpu",
+    ).strip().lower()
+    if requested in ("cpu", "cuda", "mps"):
+        return requested
+    if requested.startswith("cuda:"):
+        return requested
+    return "cpu"
+
+
 def _align_chunk_size(chunk_size: int, hop_size: int):
     safe_hop = max(1, int(hop_size))
     safe_chunk = max(safe_hop, int(chunk_size))
@@ -596,6 +608,7 @@ def _run_separation(entry_id: str, storage_dir_raw: str):
     _append_log_line(log_path, "INFO", f"BS-RoFormer model slug: {model_slug}")
     _append_log_line(log_path, "INFO", f"BS-RoFormer models dir: {models_root}")
     _append_log_line(log_path, "INFO", f"BS-RoFormer output dir: {job_output_dir}")
+    _append_log_line(log_path, "INFO", f"BS-RoFormer infer device: {_resolve_infer_device()}")
     _set_job(entry_id, "running", "Running source separation...", storage_dir=storage_dir)
     config_path, model_path, download_tail = _ensure_bs_roformer_assets(log_path, timeout_seconds)
     if not config_path or not model_path:
@@ -628,6 +641,8 @@ def _run_separation(entry_id: str, storage_dir_raw: str):
         str(job_input_dir),
         "--store_dir",
         str(job_output_dir),
+        "--device",
+        _resolve_infer_device(),
     ]
     infer_code, infer_tail = _run_logged_command(log_path, infer_command, "INFER", timeout_seconds)
     if infer_code == 124:

@@ -6,11 +6,11 @@ services:
       context: ./faceless-game-test
       dockerfile: Dockerfile.worker
     container_name: faceless-beat-separation-worker
-    gpus: all
     environment:
       SEPARATION_WORKER_PORT: "${SEPARATION_WORKER_PORT:-8792}"
       BEAT_STORAGE_DIR: /app/beat-storage
       BS_ROFORMER_MIN_CKPT_BYTES: "50000000"
+      BS_ROFORMER_INFER_DEVICE: "${BS_ROFORMER_INFER_DEVICE:-cpu}"
     volumes:
       - ./beat-storage:/app/beat-storage
       - worker-models:/app/worker-models
