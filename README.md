@@ -30,7 +30,10 @@ Single-box deployment scaffold with:
    - frontend: `http://localhost:8080`
    - backend health: `http://localhost:3001/health`
 
-SQLite persistence in Docker uses named volume `db-data` mounted at `/app/data`.
+SQLite persistence in Docker uses host path `./data` mounted at `/app/data`.
+On startup, `db-bootstrap` performs a one-time migration: if `./data/faceless-dancer.db`
+does not exist but legacy volume `db-data` has one, it copies that DB into `./data`.
+Avoid `docker compose down -v` if you still need the legacy `db-data` volume for migration.
 
 ## API summary
 - `POST /api/auth/nonce`

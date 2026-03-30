@@ -124,6 +124,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
   const judgementTimeoutRef = useRef<number | null>(null);
   const notesRef = useRef<GameNoteState[]>([]);
   const heldLanesRef = useRef<Record<GameLane, boolean>>({ left: false, down: false, up: false, right: false });
+  const lastTouchInputAtRef = useRef(0);
   const finalizedRef = useRef(false);
   const forfeitedRef = useRef(false);
   const runStartedRef = useRef(false);
@@ -524,6 +525,26 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     candidate.lastHeldSeconds = heardTime;
   };
 
+  const releaseLane = (lane: GameLane): void => {
+    heldLanesRef.current = { ...heldLanesRef.current, [lane]: false };
+    setHeldLanes((prev) => ({ ...prev, [lane]: false }));
+  };
+
+  const handleLaneTouchStart = (event: Event, lane: GameLane): void => {
+    event.preventDefault();
+    lastTouchInputAtRef.current = performance.now();
+    handleLaneInput(lane);
+  };
+
+  const handleLaneMouseDown = (lane: GameLane): void => {
+    // Mobile browsers can emit a synthetic mouse event after touch.
+    // Ignore that duplicate so a single tap cannot score then immediately miss.
+    if (performance.now() - lastTouchInputAtRef.current < 700) {
+      return;
+    }
+    handleLaneInput(lane);
+  };
+
   useEffect(() => {
     const engine = createPrecisePlaybackEngine();
     engine.setOnEnded(() => {
@@ -772,7 +793,18 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
 
         <div className="ddr-step-zone">
           {laneOrder.map((lane) => (
-            <button key={lane} type="button" disabled={phase !== "running"} className={`ddr-receptor lane-${lane}${pressedLanes[lane] ? " pressed" : ""}${heldLanes[lane] ? " held" : ""}`} onMouseDown={() => handleLaneInput(lane)} onTouchStart={() => handleLaneInput(lane)}>
+            <button
+              key={lane}
+              type="button"
+              disabled={phase !== "running"}
+              className={`ddr-receptor lane-${lane}${pressedLanes[lane] ? " pressed" : ""}${heldLanes[lane] ? " held" : ""}`}
+              onMouseDown={() => handleLaneMouseDown(lane)}
+              onMouseUp={() => releaseLane(lane)}
+              onMouseLeave={() => releaseLane(lane)}
+              onTouchStart={(event) => handleLaneTouchStart(event, lane)}
+              onTouchEnd={() => releaseLane(lane)}
+              onTouchCancel={() => releaseLane(lane)}
+            >
               <img className="ddr-arrow-graphic control" src={controlArrowImages[lane]} alt="" draggable={false} />
             </button>
           ))}
