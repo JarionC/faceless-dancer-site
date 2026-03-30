@@ -1,7 +1,10 @@
+import path from "node:path";
 import dotenv from "dotenv";
 import { z } from "zod";
 
-dotenv.config();
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+dotenv.config({ path: path.resolve(process.cwd(), "..", ".env") });
+dotenv.config({ path: path.resolve(process.cwd(), "..", ".env.docker") });
 
 const optionalUrlSchema = z.union([z.string().url(), z.literal("")]).default("");
 
@@ -15,7 +18,7 @@ const envSchema = z.object({
   AUTH_MESSAGE_PREFIX: z.string().default("Faceless Dancer wallet verification"),
   NONCE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   ACCESS_TOKEN_SECRET: z.string().min(32),
-  ACCESS_TOKEN_TTL: z.string().default("15m"),
+  ACCESS_TOKEN_TTL: z.string().default("24h"),
   REFRESH_TOKEN_SECRET: z.string().min(32),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
   COOKIE_SECURE: z.enum(["true", "false"]).default("false"),
@@ -45,6 +48,11 @@ const envSchema = z.object({
   MAX_UPLOAD_SIZE_MB: z.coerce.number().positive().default(20),
   ALLOWED_IMAGE_MIME: z.string().default("image/png,image/jpeg,image/webp"),
   ALLOWED_AUDIO_MIME: z.string().default("audio/mpeg,audio/wav,audio/x-wav"),
+
+  BEAT_STORAGE_DIR: z.string().default("./server/beat-storage"),
+  BEAT_API_MAX_BODY_BYTES: z.coerce.number().int().positive().default(50 * 1024 * 1024),
+  BEAT_SEPARATION_WORKER_URL: z.string().url().default("http://separation-worker:8792"),
+  BEAT_SEPARATION_LOG_TAIL_LINES: z.coerce.number().int().positive().default(300),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -69,4 +77,7 @@ export const env = {
   storageEndpoint:
     data.BUNNY_STORAGE_ENDPOINT ??
     (data.BUNNY_STORAGE_REGION ? `https://${data.BUNNY_STORAGE_REGION}.storage.bunnycdn.com` : "https://storage.bunnycdn.com"),
+  beatStorageDir: path.isAbsolute(data.BEAT_STORAGE_DIR)
+    ? data.BEAT_STORAGE_DIR
+    : path.resolve(process.cwd(), data.BEAT_STORAGE_DIR),
 };

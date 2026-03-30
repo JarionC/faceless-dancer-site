@@ -35,9 +35,12 @@ export function HeroSection({ settings }: Props) {
         </p>
 
         <div className="hero__actions">
+          <a className="cta-button" href="/game">
+            Play The Game
+          </a>
           {settings.pumpFunUrl ? (
             <a
-              className="cta-button"
+              className="ghost-link"
               href={settings.pumpFunUrl}
               target="_blank"
               rel="noreferrer"

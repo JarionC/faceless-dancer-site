@@ -1,0 +1,9 @@
+I've added faceless-game-test dir to the main dir
+That has elements that we want to pull into the site. 
+The top portion of it, where a music file is uploaded, split into main beats, and the hybrid analysis and "apply controls + re-run hybrid analysis" and all of the controls we can set - that needs to be it's own page that is only visible and accessible by the admin wallet holder. make sure we are also including all the controls to select the spans of beats from the separate bands from the beat graph in saved major beats section
+
+The actual game at the bottom of that setup needs to be incorporated into it's own page as a game the players can play. 
+
+The admin should be able to save the game melody beats for a game, as well as the song it is associated with, and when the admin enables that song - it becomes available in a spiffy animated roledex selection for the players in the game page, and then the players can play the game, and get a final score on the song. if the player is a connected, confirmed holder, their high score for the game is saved (and they can pick a display name that will show for their high score). There will be asection to view high scores for both individual songs and for overall(all high scores added together). make whatever stylistic changes you need to make it look like a fun exciting online game (w/ dark background) that looks just like ddr (including changing the style of the arrow controls so they look and behave just like ddr controls - let me know if you need me to include images to make this look better). hero section of the main page should have a big CTA for Play the Game that brings users to the game page, and game page should just be one responsive, non-scrolling page for the game app, that can link back to the home page when they are in menu mode. 
+
+If it works better for this, include a js framework to help make this look perfect

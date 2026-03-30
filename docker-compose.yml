@@ -1,17 +1,37 @@
 version: "3.9"
 
 services:
+  separation-worker:
+    build:
+      context: ./faceless-game-test
+      dockerfile: Dockerfile.worker
+    container_name: faceless-beat-separation-worker
+    gpus: all
+    environment:
+      SEPARATION_WORKER_PORT: "${SEPARATION_WORKER_PORT:-8792}"
+      BEAT_STORAGE_DIR: /app/beat-storage
+      BS_ROFORMER_MIN_CKPT_BYTES: "50000000"
+    volumes:
+      - ./beat-storage:/app/beat-storage
+      - worker-models:/app/worker-models
+    restart: unless-stopped
+
   server:
     build:
       context: .
       dockerfile: server/Dockerfile
     container_name: faceless-dancer-server
+    depends_on:
+      - separation-worker
     env_file:
       - ./.env
     environment:
       DATABASE_PATH: /app/data/faceless-dancer.db
+      BEAT_STORAGE_DIR: /app/beat-storage
+      BEAT_SEPARATION_WORKER_URL: http://separation-worker:8792
     volumes:
       - db-data:/app/data
+      - ./beat-storage:/app/beat-storage
     ports:
       - "127.0.0.1:3001:3001"
     restart: unless-stopped
@@ -29,3 +49,4 @@ services:
 
 volumes:
   db-data:
+  worker-models:

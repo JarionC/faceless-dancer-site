@@ -10,6 +10,14 @@ export interface SessionState {
 }
 
 export function useSession() {
+  const unauthenticatedState: SessionState = {
+    loading: false,
+    authenticated: false,
+    publicKey: "",
+    isHolder: false,
+    isAdmin: false,
+  };
+
   const [state, setState] = useState<SessionState>({
     loading: true,
     authenticated: false,
@@ -19,9 +27,38 @@ export function useSession() {
   });
 
   useEffect(() => {
-    api.me()
-      .then((data) => setState({ loading: false, ...data }))
-      .catch(() => setState((prev) => ({ ...prev, loading: false })));
+    let cancelled = false;
+    const hydrate = async (): Promise<void> => {
+      try {
+        const data = await api.me();
+        if (!cancelled) {
+          setState({ loading: false, ...data });
+        }
+        return;
+      } catch {
+        // Fall through to refresh retry.
+      }
+
+      try {
+        await api.refresh();
+        const data = await api.me();
+        if (!cancelled) {
+          setState({ loading: false, ...data });
+        }
+        return;
+      } catch {
+        // Refresh unavailable/expired -> unauthenticated.
+      }
+
+      if (!cancelled) {
+        setState(unauthenticatedState);
+      }
+    };
+
+    void hydrate();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return useMemo(() => ({

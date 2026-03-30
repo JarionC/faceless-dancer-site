@@ -1,21 +1,10 @@
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import bs58 from "bs58";
 import { api } from "../lib/api";
+import { detectConnectedWalletPublicKey, getProvider, type SupportedWallet } from "../lib/walletConnection";
 
 interface Props {
   onVerified: (session: { authenticated: boolean; publicKey: string; isHolder: boolean; isAdmin: boolean }) => void;
-}
-
-type SupportedWallet = "phantom" | "solflare" | "backpack" | "metamask";
-
-interface SolanaProvider {
-  isPhantom?: boolean;
-  isSolflare?: boolean;
-  isBackpack?: boolean;
-  isMetaMask?: boolean;
-  publicKey?: { toString(): string };
-  connect: () => Promise<{ publicKey?: { toString(): string } }>;
-  signMessage: (message: Uint8Array, display?: string) => Promise<{ signature: Uint8Array }>;
 }
 
 const walletLabels: Record<SupportedWallet, string> = {
@@ -25,39 +14,16 @@ const walletLabels: Record<SupportedWallet, string> = {
   metamask: "MetaMask",
 };
 
-function getInjectedProviders() {
-  const anyWindow = window as any;
-  const providers = [
-    anyWindow.phantom?.solana,
-    anyWindow.solflare,
-    anyWindow.backpack?.solana,
-    anyWindow.solana,
-    ...(Array.isArray(anyWindow.solana?.providers) ? anyWindow.solana.providers : []),
-  ].filter(Boolean) as SolanaProvider[];
-
-  return Array.from(new Set(providers));
-}
-
-function getProvider(wallet: SupportedWallet) {
-  const providers = getInjectedProviders();
-
-  switch (wallet) {
-    case "phantom":
-      return providers.find((provider) => provider.isPhantom);
-    case "solflare":
-      return providers.find((provider) => provider.isSolflare);
-    case "backpack":
-      return providers.find((provider) => provider.isBackpack);
-    case "metamask":
-      return providers.find((provider) => provider.isMetaMask);
-    default:
-      return undefined;
-  }
-}
-
 export function WalletAuthCard({ onVerified }: Props) {
   const [status, setStatus] = useState("Disconnected");
   const [wallet, setWallet] = useState<SupportedWallet>("phantom");
+
+  useEffect(() => {
+    const key = detectConnectedWalletPublicKey();
+    if (key) {
+      setStatus(`Connected: ${key}`);
+    }
+  }, []);
 
   const signAndVerify = async () => {
     const provider = getProvider(wallet);
