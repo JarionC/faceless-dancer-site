@@ -14,6 +14,7 @@ const envSchema = z.object({
   CLIENT_ORIGIN: z.string().default("http://localhost:5173"),
 
   DATABASE_PATH: z.string().default("/app/data/faceless-dancer.db"),
+  RUN_MIGRATIONS_ON_START: z.enum(["true", "false"]).default("false"),
 
   AUTH_MESSAGE_PREFIX: z.string().default("Faceless Dancer wallet verification"),
   NONCE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
@@ -80,4 +81,5 @@ export const env = {
   beatStorageDir: path.isAbsolute(data.BEAT_STORAGE_DIR)
     ? data.BEAT_STORAGE_DIR
     : path.resolve(process.cwd(), data.BEAT_STORAGE_DIR),
+  runMigrationsOnStart: data.RUN_MIGRATIONS_ON_START === "true",
 };

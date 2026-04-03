@@ -18,6 +18,28 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Preflight persistent paths on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 65.108.242.227
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            APP_DIR="${{ secrets.VPS_APP_DIR }}"
+            PERSIST_ROOT="/var/lib/faceless-dancer"
+
+            mkdir -p "$PERSIST_ROOT/data" "$PERSIST_ROOT/beat-storage" "$PERSIST_ROOT/worker-models"
+
+            case "$APP_DIR" in
+              "$PERSIST_ROOT"|"$PERSIST_ROOT"/*)
+                echo "Refusing deploy: VPS_APP_DIR overlaps persistent storage path"
+                exit 1
+                ;;
+            esac
+
+            mkdir -p "$APP_DIR"
+
       - name: Copy repo to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -26,7 +48,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           source: "."
           target: ${{ secrets.VPS_APP_DIR }}
-          rm: true
+          rm: false
           strip_components: 0
 
       - name: Write .env on VPS
@@ -39,8 +61,10 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: ENV_FILE
           script: |
-            mkdir -p "${{ secrets.VPS_APP_DIR }}"
-            printf "%s" "$ENV_FILE" > "${{ secrets.VPS_APP_DIR }}/.env"
+            set -euo pipefail
+            APP_DIR="${{ secrets.VPS_APP_DIR }}"
+            mkdir -p "$APP_DIR"
+            printf "%s" "$ENV_FILE" > "$APP_DIR/.env"
 
       - name: Deploy containers
         uses: appleboy/ssh-action@v1.0.3
@@ -49,6 +73,12 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -euo pipefail
             cd "${{ secrets.VPS_APP_DIR }}"
-            docker-compose down || true
-            docker-compose up -d --build
+
+            mkdir -p /var/lib/faceless-dancer/data /var/lib/faceless-dancer/beat-storage /var/lib/faceless-dancer/worker-models
+
+            docker compose down || true
+            docker compose up -d --build
+
+            docker inspect faceless-dancer-server --format '{{range .Mounts}}{{println .Source " -> " .Destination}}{{end}}'

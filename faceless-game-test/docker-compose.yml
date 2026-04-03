@@ -53,8 +53,8 @@ services:
       BEAT_ANALYSIS_HIGH_WEIGHT: "${BEAT_ANALYSIS_HIGH_WEIGHT:-0.90}"
       BEAT_STORAGE_DIR: "${BEAT_STORAGE_DIR:-/app/beat-storage}"
     volumes:
-      - ./beat-storage:/app/beat-storage
-      - worker_models:/app/worker-models
+      - ${BEAT_STORAGE_HOST_PATH:-/var/lib/faceless-dancer/beat-storage}:/app/beat-storage
+      - ${WORKER_MODELS_HOST_PATH:-/var/lib/faceless-dancer/worker-models}:/app/worker-models
 
   backend:
     build:
@@ -70,7 +70,7 @@ services:
       BEAT_SEPARATION_WORKER_URL: "${BEAT_SEPARATION_WORKER_URL:-http://separation-worker:8792}"
       BEAT_SEPARATION_LOG_TAIL_LINES: "${BEAT_SEPARATION_LOG_TAIL_LINES:-200}"
     volumes:
-      - ./beat-storage:/app/beat-storage
+      - ${BEAT_STORAGE_HOST_PATH:-/var/lib/faceless-dancer/beat-storage}:/app/beat-storage
     depends_on:
       - separation-worker
 
@@ -85,6 +85,3 @@ services:
       - backend
     ports:
       - "5173:4173"
-
-volumes:
-  worker_models:

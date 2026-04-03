@@ -24,15 +24,21 @@ Single-box deployment scaffold with:
 
 ## Docker (same-box production)
 1. Set `.env` in repo root
-2. Start services:
+2. Ensure persistent host dirs exist:
+   - `sudo mkdir -p /var/lib/faceless-dancer/data /var/lib/faceless-dancer/beat-storage /var/lib/faceless-dancer/worker-models`
+3. Start services:
    - `docker compose up --build -d`
-3. App endpoints:
+4. App endpoints:
    - frontend: `http://localhost:8080`
    - backend health: `http://localhost:3001/health`
 
-SQLite persistence in Docker uses host path `./data` mounted at `/app/data`.
-Deployment/startup does not copy, create, or replace DB files. Schema changes should be
-applied explicitly via migration commands you run intentionally.
+Persistent storage uses absolute host paths outside the repo:
+- `DB_HOST_PATH` (default `/var/lib/faceless-dancer/data`) -> `/app/data`
+- `BEAT_STORAGE_HOST_PATH` (default `/var/lib/faceless-dancer/beat-storage`) -> `/app/beat-storage`
+- `WORKER_MODELS_HOST_PATH` (default `/var/lib/faceless-dancer/worker-models`) -> `/app/worker-models`
+
+Deployment/startup does not copy, reset, or replace persistent files.
+Schema changes are explicit: run migrations manually when you choose.
 
 ## API summary
 - `POST /api/auth/nonce`

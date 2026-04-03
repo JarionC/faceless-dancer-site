@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   separation-worker:
     build:
@@ -12,8 +10,8 @@ services:
       BS_ROFORMER_MIN_CKPT_BYTES: "50000000"
       BS_ROFORMER_INFER_DEVICE: "${BS_ROFORMER_INFER_DEVICE:-cpu}"
     volumes:
-      - ./beat-storage:/app/beat-storage
-      - worker-models:/app/worker-models
+      - ${BEAT_STORAGE_HOST_PATH:-/var/lib/faceless-dancer/beat-storage}:/app/beat-storage
+      - ${WORKER_MODELS_HOST_PATH:-/var/lib/faceless-dancer/worker-models}:/app/worker-models
     restart: unless-stopped
 
   server:
@@ -30,9 +28,10 @@ services:
       DATABASE_PATH: /app/data/faceless-dancer.db
       BEAT_STORAGE_DIR: /app/beat-storage
       BEAT_SEPARATION_WORKER_URL: http://separation-worker:8792
+      RUN_MIGRATIONS_ON_START: "${RUN_MIGRATIONS_ON_START:-false}"
     volumes:
-      - ./data:/app/data
-      - ./beat-storage:/app/beat-storage
+      - ${DB_HOST_PATH:-/var/lib/faceless-dancer/data}:/app/data
+      - ${BEAT_STORAGE_HOST_PATH:-/var/lib/faceless-dancer/beat-storage}:/app/beat-storage
     ports:
       - "127.0.0.1:3001:3001"
     restart: unless-stopped
@@ -47,6 +46,3 @@ services:
     ports:
       - "127.0.0.1:8080:80"
     restart: unless-stopped
-
-volumes:
-  worker-models:
