@@ -1,30 +1,6 @@
 version: "3.9"
 
 services:
-  db-bootstrap:
-    image: alpine:3.20
-    container_name: faceless-db-bootstrap
-    command:
-      - /bin/sh
-      - -c
-      - |
-        set -e
-        mkdir -p /persistent-data
-        if [ -f /persistent-data/faceless-dancer.db ]; then
-          echo "Persistent DB already present at /persistent-data/faceless-dancer.db"
-          exit 0
-        fi
-        if [ -f /legacy-data/faceless-dancer.db ]; then
-          cp /legacy-data/faceless-dancer.db /persistent-data/faceless-dancer.db
-          echo "Copied legacy DB to persistent path."
-          exit 0
-        fi
-        echo "No legacy DB found; starting with empty persistent DB path."
-    volumes:
-      - ./data:/persistent-data
-      - db-data:/legacy-data:ro
-    restart: "no"
-
   separation-worker:
     build:
       context: ./faceless-game-test
@@ -46,8 +22,6 @@ services:
       dockerfile: server/Dockerfile
     container_name: faceless-dancer-server
     depends_on:
-      db-bootstrap:
-        condition: service_completed_successfully
       separation-worker:
         condition: service_started
     env_file:
@@ -75,5 +49,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  db-data:
   worker-models:
