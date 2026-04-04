@@ -1,3 +1,5 @@
+import { isGameDifficulty, isGameMode } from "./difficultyCharts.js";
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -27,6 +29,8 @@ export interface SaveMajorBeatsPayload {
 }
 
 export interface SaveGameBeatsPayload {
+  gameMode?: "step_arrows" | "orb_beat";
+  difficulty?: "easy" | "normal" | "hard";
   gameBeats: Array<{ timeSeconds: number; strength: number }>;
   gameBeatSelections?: Array<{
     source: string;
@@ -45,6 +49,8 @@ export interface SaveGameBeatsPayload {
 
 export interface SaveScorePayload {
   displayName: string;
+  gameMode?: "step_arrows" | "orb_beat";
+  difficulty?: "easy" | "normal" | "hard";
   score: number;
   maxCombo?: number;
   perfect?: number;
@@ -138,6 +144,12 @@ export function validateGameBeatsPayload(payload: unknown): string | null {
   }
 
   const body = payload as Record<string, unknown>;
+  if (body.gameMode !== undefined && !isGameMode(body.gameMode)) {
+    return "gameMode must be one of step_arrows or orb_beat.";
+  }
+  if (body.difficulty !== undefined && !isGameDifficulty(body.difficulty)) {
+    return "difficulty must be one of easy, normal, or hard.";
+  }
   const gameBeats = body.gameBeats;
   if (!Array.isArray(gameBeats)) {
     return "gameBeats must be an array.";
@@ -188,6 +200,12 @@ export function validateSaveScorePayload(payload: unknown): string | null {
   const body = payload as Record<string, unknown>;
   if (typeof body.displayName !== "string" || !body.displayName.trim()) {
     return "displayName is required.";
+  }
+  if (body.gameMode !== undefined && !isGameMode(body.gameMode)) {
+    return "gameMode must be one of step_arrows or orb_beat.";
+  }
+  if (body.difficulty !== undefined && !isGameDifficulty(body.difficulty)) {
+    return "difficulty must be one of easy, normal, or hard.";
   }
   if (body.displayName.trim().length > 24) {
     return "displayName must be 24 characters or fewer.";

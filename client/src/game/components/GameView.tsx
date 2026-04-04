@@ -2,8 +2,22 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { CSSProperties } from "preact/compat";
 import { runtimeConfig } from "../config/runtime";
 import { createPrecisePlaybackEngine, type PrecisePlaybackEngine } from "../lib/audio/precisePlaybackEngine";
-import { buildMelodyNotesFromMajorBeats, type GameLane, type MelodyNote } from "../lib/game/melodyChartService";
+import {
+  buildFallbackEntryFromBeats,
+  buildGameNotesFromEntry,
+  type GameLane,
+  type MelodyNote,
+  type OrbBeatLane,
+  type StepArrowLane,
+} from "../lib/game/melodyChartService";
 import type { SavedBeatEntry } from "../types/beat";
+import {
+  GAME_DIFFICULTIES,
+  GAME_MODES,
+  type GameDifficulty,
+  type GameMode,
+  getModeDifficultyChart,
+} from "../lib/game/difficultyCharts";
 
 interface GameViewProps {
   apiBaseUrl: string;
@@ -23,11 +37,17 @@ interface EnabledSongSummary {
   majorBeatCount: number;
   gameBeatCount: number;
   coverImageUrl: string | null;
+  availableGameModes: GameMode[];
+  availableDifficulties: GameDifficulty[];
+  difficultyBeatCounts: Partial<Record<GameDifficulty, number>>;
+  modeDifficultyBeatCounts: Partial<Record<GameMode, Partial<Record<GameDifficulty, number>>>>;
 }
 
 interface SongLeaderboardRow {
   displayName: string;
   publicKey: string;
+  gameMode: GameMode;
+  difficulty: GameDifficulty;
   score: number;
 }
 
@@ -59,19 +79,47 @@ interface ScoreState {
   miss: number;
 }
 
-const laneOrder: GameLane[] = ["left", "down", "up", "right"];
-const controlArrowImages: Record<GameLane, string> = {
+function createLaneState(): Record<GameLane, boolean> {
+  return {
+    left: false,
+    down: false,
+    up: false,
+    right: false,
+    l1: false,
+    l2: false,
+    l3: false,
+    r1: false,
+    r2: false,
+    r3: false
+  };
+}
+
+const stepArrowLaneOrder: StepArrowLane[] = ["left", "down", "up", "right"];
+const orbBeatLaneOrder: OrbBeatLane[] = ["l1", "l2", "l3", "r1", "r2", "r3"];
+const controlArrowImages: Record<StepArrowLane, string> = {
   left: "/game-graphics/controls/left.png",
   down: "/game-graphics/controls/down.png",
   up: "/game-graphics/controls/up.png",
   right: "/game-graphics/controls/right.png"
 };
-const beatArrowImages: Record<GameLane, string> = {
+const beatArrowImages: Record<StepArrowLane, string> = {
   left: "/game-graphics/beats/left.png",
   down: "/game-graphics/beats/down.png",
   up: "/game-graphics/beats/up.png",
   right: "/game-graphics/beats/right.png"
 };
+const orbControlLabels: Record<OrbBeatLane, string> = {
+  l1: "L1",
+  l2: "L2",
+  l3: "L3",
+  r1: "R1",
+  r2: "R2",
+  r3: "R3"
+};
+
+function formatGameModeLabel(gameMode: GameMode): string {
+  return gameMode === "orb_beat" ? "Orb Beat" : "Step Arrows";
+}
 const HOLD_MIN_SECONDS = 0.14;
 const HOLD_BONUS_POINTS = 120;
 const HOLD_BONUS_EASY_RELEASE_SECONDS = 0.5;
@@ -123,7 +171,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
   const rolodexRafRef = useRef<number | null>(null);
   const judgementTimeoutRef = useRef<number | null>(null);
   const notesRef = useRef<GameNoteState[]>([]);
-  const heldLanesRef = useRef<Record<GameLane, boolean>>({ left: false, down: false, up: false, right: false });
+  const heldLanesRef = useRef<Record<GameLane, boolean>>(createLaneState());
   const lastTouchInputAtRef = useRef(0);
   const finalizedRef = useRef(false);
   const forfeitedRef = useRef(false);
@@ -139,6 +187,9 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
   const [selectedId, setSelectedId] = useState("");
   const [selectedEntry, setSelectedEntry] = useState<SavedBeatEntry | null>(null);
   const [analysisMajorBeats, setAnalysisMajorBeats] = useState<Array<{ timeSeconds: number; strength: number }> | null>(null);
+  const [selectedGameMode, setSelectedGameMode] = useState<GameMode>("step_arrows");
+  const [selectedDifficulty, setSelectedDifficulty] = useState<GameDifficulty>("normal");
+  const [isLandscape, setIsLandscape] = useState(false);
 
   const [loadingSongs, setLoadingSongs] = useState(false);
   const [loadingEntry, setLoadingEntry] = useState(false);
@@ -151,8 +202,8 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
   const [songEndedSignal, setSongEndedSignal] = useState(0);
   const [lastJudgement, setLastJudgement] = useState<Judgement | null>(null);
   const [judgementEventId, setJudgementEventId] = useState(0);
-  const [pressedLanes, setPressedLanes] = useState<Record<GameLane, boolean>>({ left: false, down: false, up: false, right: false });
-  const [heldLanes, setHeldLanes] = useState<Record<GameLane, boolean>>({ left: false, down: false, up: false, right: false });
+  const [pressedLanes, setPressedLanes] = useState<Record<GameLane, boolean>>(createLaneState);
+  const [heldLanes, setHeldLanes] = useState<Record<GameLane, boolean>>(createLaneState);
 
   const [songLeaderboard, setSongLeaderboard] = useState<SongLeaderboardRow[]>([]);
   const [overallLeaderboard, setOverallLeaderboard] = useState<OverallLeaderboardRow[]>([]);
@@ -213,18 +264,50 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     });
   };
 
-  const rebuildChart = (entryOverride?: SavedBeatEntry | null, analysisOverride?: Array<{ timeSeconds: number; strength: number }> | null): void => {
+  const rebuildChart = (
+    entryOverride?: SavedBeatEntry | null,
+    analysisOverride?: Array<{ timeSeconds: number; strength: number }> | null,
+    gameModeOverride?: GameMode,
+    difficultyOverride?: GameDifficulty
+  ): void => {
     const entry = entryOverride ?? selectedEntry;
     const analysis = analysisOverride ?? analysisMajorBeats;
+    const gameMode = gameModeOverride ?? selectedGameMode;
+    const difficulty = difficultyOverride ?? selectedDifficulty;
     if (!entry) {
       notesRef.current = [];
       return;
     }
-    const baseEntry: SavedBeatEntry = entry.gameBeats && entry.gameBeats.length > 0 ? { ...entry, majorBeats: entry.gameBeats } : analysis && analysis.length > 0 ? { ...entry, majorBeats: analysis } : entry;
-    notesRef.current = buildMelodyNotesFromMajorBeats(baseEntry).map((note) => ({ ...note, judged: false, holdStarted: false, holding: false, lastHeldSeconds: note.timeSeconds }));
+    const chart = getModeDifficultyChart(entry, gameMode, difficulty);
+    const chartedEntry: SavedBeatEntry =
+      chart
+        ? {
+            ...entry,
+            gameBeats: chart.gameBeats ?? [],
+            gameNotes: chart.gameNotes ?? [],
+            gameBeatSelections: chart.gameBeatSelections ?? [],
+            gameBeatConfig: { ...(chart.gameBeatConfig ?? {}), gameMode }
+          }
+        : entry;
+    const baseEntry: SavedBeatEntry =
+      chart && (chart.gameBeats?.length ?? 0) > 0
+        ? buildFallbackEntryFromBeats(chartedEntry, chart.gameBeats ?? [], gameMode)
+        : analysis && analysis.length > 0 && gameMode === "step_arrows" && difficulty === "normal"
+          ? buildFallbackEntryFromBeats(chartedEntry, analysis, gameMode)
+          : chartedEntry;
+    notesRef.current = buildGameNotesFromEntry(baseEntry, gameMode).map((note) => ({
+      ...note,
+      judged: false,
+      holdStarted: false,
+      holding: false,
+      lastHeldSeconds: note.timeSeconds
+    }));
     setScore(createInitialScore());
     setHoldBonusPoints(0);
     setChartRevision((value) => value + 1);
+    heldLanesRef.current = createLaneState();
+    setHeldLanes(createLaneState());
+    setPressedLanes(createLaneState());
   };
 
   const tick = (): void => {
@@ -312,10 +395,16 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     });
   };
 
-  const loadLeaderboards = async (entryId: string): Promise<void> => {
+  const loadLeaderboards = async (
+    entryId: string,
+    gameMode: GameMode,
+    difficulty: GameDifficulty
+  ): Promise<void> => {
     try {
       const [songData, overallData] = await Promise.all([
-        fetchJson<{ leaderboard: SongLeaderboardRow[] }>(`${apiBaseUrl}/api/scores/song/${encodeURIComponent(entryId)}`),
+        fetchJson<{ leaderboard: SongLeaderboardRow[] }>(
+          `${apiBaseUrl}/api/scores/song/${encodeURIComponent(entryId)}?gameMode=${encodeURIComponent(gameMode)}&difficulty=${encodeURIComponent(difficulty)}`
+        ),
         fetchJson<{ leaderboard: OverallLeaderboardRow[] }>(`${apiBaseUrl}/api/scores/overall`)
       ]);
       setSongLeaderboard(songData.leaderboard ?? []);
@@ -355,7 +444,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
         loadedAnalysis = null;
         setAnalysisMajorBeats(null);
       }
-      await loadLeaderboards(entryId);
+      await loadLeaderboards(entryId, selectedGameMode, selectedDifficulty);
       return { entry: detail.entry, analysisMajorBeats: loadedAnalysis };
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load selected song.");
@@ -382,6 +471,8 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             displayName: holderName(holderPublicKey),
+            gameMode: selectedGameMode,
+            difficulty: selectedDifficulty,
             score: totalScore,
             maxCombo: score.maxCombo,
             perfect: score.perfect,
@@ -391,7 +482,9 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
             miss: score.miss
           })
         });
-        const latestSong = await fetchJson<{ leaderboard: SongLeaderboardRow[] }>(`${apiBaseUrl}/api/scores/song/${encodeURIComponent(selectedEntry.id)}`);
+        const latestSong = await fetchJson<{ leaderboard: SongLeaderboardRow[] }>(
+          `${apiBaseUrl}/api/scores/song/${encodeURIComponent(selectedEntry.id)}?gameMode=${encodeURIComponent(selectedGameMode)}&difficulty=${encodeURIComponent(selectedDifficulty)}`
+        );
         setSongLeaderboard(latestSong.leaderboard ?? []);
         rank = (latestSong.leaderboard ?? []).filter((row) => row.score > totalScore).length + 1;
         message = `Holder rank: #${rank}`;
@@ -442,7 +535,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     previousTimeRef.current = 0;
     setSongEndedSignal(0);
     setResultsModal({ visible: false, score: 0, percentage: 0, rank: null, message: "" });
-    rebuildChart(loaded.entry, loaded.analysisMajorBeats);
+    rebuildChart(loaded.entry, loaded.analysisMajorBeats, selectedGameMode, selectedDifficulty);
     let beatsLeft = 3;
     const beatSeconds = estimateBeatSeconds(notesRef.current);
     stopCountdown();
@@ -571,6 +664,19 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
   }, []);
 
   useEffect(() => {
+    const syncOrientation = (): void => {
+      setIsLandscape(window.innerWidth > window.innerHeight);
+    };
+    syncOrientation();
+    window.addEventListener("resize", syncOrientation);
+    window.addEventListener("orientationchange", syncOrientation);
+    return () => {
+      window.removeEventListener("resize", syncOrientation);
+      window.removeEventListener("orientationchange", syncOrientation);
+    };
+  }, []);
+
+  useEffect(() => {
     onModeChange?.(mode);
   }, [mode, onModeChange]);
 
@@ -584,12 +690,45 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
 
   useEffect(() => {
     if (!selectedId || mode !== "scores") return;
-    loadLeaderboards(selectedId).catch(() => undefined);
-  }, [mode, selectedId]);
+    loadLeaderboards(selectedId, selectedGameMode, selectedDifficulty).catch(() => undefined);
+  }, [mode, selectedDifficulty, selectedGameMode, selectedId]);
 
   useEffect(() => {
     rebuildChart();
-  }, [selectedEntry?.id, analysisMajorBeats?.length]);
+  }, [selectedDifficulty, selectedGameMode, selectedEntry?.id, analysisMajorBeats?.length]);
+
+  const selectedSongSummary = useMemo(
+    () => songs.find((song) => song.beatEntryId === selectedId) ?? null,
+    [selectedId, songs]
+  );
+
+  useEffect(() => {
+    if (!selectedSongSummary) {
+      return;
+    }
+    const availableModes = selectedSongSummary.availableGameModes ?? [];
+    if (availableModes.length === 0) {
+      setSelectedGameMode("step_arrows");
+      setSelectedDifficulty("normal");
+      return;
+    }
+    if (!availableModes.includes(selectedGameMode)) {
+      setSelectedGameMode(availableModes.includes("step_arrows") ? "step_arrows" : availableModes[0]);
+      return;
+    }
+    const availableDifficulties = Object.keys(
+      selectedSongSummary.modeDifficultyBeatCounts?.[selectedGameMode] ?? {}
+    ) as GameDifficulty[];
+    if (availableDifficulties.length === 0) {
+      setSelectedDifficulty("normal");
+      return;
+    }
+    if (!availableDifficulties.includes(selectedDifficulty)) {
+      setSelectedDifficulty(
+        availableDifficulties.includes("normal") ? "normal" : availableDifficulties[0]
+      );
+    }
+  }, [selectedDifficulty, selectedGameMode, selectedSongSummary]);
 
   useEffect(() => {
     if (mode !== "play" || phase !== "running") return;
@@ -624,27 +763,41 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (mode !== "play" || phase !== "running" || event.repeat) return;
+      if (selectedGameMode === "orb_beat") {
+        if (event.key === "7") { handleLaneInput("l1"); event.preventDefault(); }
+        if (event.key === "4") { handleLaneInput("l2"); event.preventDefault(); }
+        if (event.key === "1") { handleLaneInput("l3"); event.preventDefault(); }
+        if (event.key === "9") { handleLaneInput("r1"); event.preventDefault(); }
+        if (event.key === "6") { handleLaneInput("r2"); event.preventDefault(); }
+        if (event.key === "3") { handleLaneInput("r3"); event.preventDefault(); }
+        return;
+      }
       if (event.key === "ArrowLeft") { handleLaneInput("left"); event.preventDefault(); }
       if (event.key === "ArrowDown") { handleLaneInput("down"); event.preventDefault(); }
       if (event.key === "ArrowUp") { handleLaneInput("up"); event.preventDefault(); }
       if (event.key === "ArrowRight") { handleLaneInput("right"); event.preventDefault(); }
     };
     const onKeyUp = (event: KeyboardEvent): void => {
+      if (selectedGameMode === "orb_beat") {
+        if (event.key === "7") releaseLane("l1");
+        if (event.key === "4") releaseLane("l2");
+        if (event.key === "1") releaseLane("l3");
+        if (event.key === "9") releaseLane("r1");
+        if (event.key === "6") releaseLane("r2");
+        if (event.key === "3") releaseLane("r3");
+        return;
+      }
       if (event.key === "ArrowLeft") {
-        heldLanesRef.current = { ...heldLanesRef.current, left: false };
-        setHeldLanes((prev) => ({ ...prev, left: false }));
+        releaseLane("left");
       }
       if (event.key === "ArrowDown") {
-        heldLanesRef.current = { ...heldLanesRef.current, down: false };
-        setHeldLanes((prev) => ({ ...prev, down: false }));
+        releaseLane("down");
       }
       if (event.key === "ArrowUp") {
-        heldLanesRef.current = { ...heldLanesRef.current, up: false };
-        setHeldLanes((prev) => ({ ...prev, up: false }));
+        releaseLane("up");
       }
       if (event.key === "ArrowRight") {
-        heldLanesRef.current = { ...heldLanesRef.current, right: false };
-        setHeldLanes((prev) => ({ ...prev, right: false }));
+        releaseLane("right");
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -653,7 +806,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [mode, phase]);
+  }, [mode, phase, selectedGameMode]);
 
   const visibleNotes = useMemo(() => {
     const startWindow = currentTimeSeconds - windows.poor - 0.05;
@@ -665,6 +818,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     () => songs.findIndex((song) => song.beatEntryId === selectedId),
     [songs, selectedId]
   );
+  const activeLanes = selectedGameMode === "orb_beat" ? orbBeatLaneOrder : stepArrowLaneOrder;
 
   if (mode === "menu") {
     return (
@@ -704,15 +858,77 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
                 ) : null}
                 <div className="game-song-card-overlay" />
                 <strong>{song.title}</strong>
-                <span>{song.gameBeatCount || song.majorBeatCount} notes</span>
+                <span>
+                  {song.availableDifficulties?.length > 0
+                    ? `${song.availableDifficulties.join(", ")}`
+                    : `${song.gameBeatCount || song.majorBeatCount} notes`}
+                </span>
               </button>
               );
             })}
           </div>
           {error ? <p className="error">{error}</p> : null}
           {songs.length === 0 && !loadingSongs ? <p>No enabled songs available yet.</p> : null}
+          {selectedSongSummary ? (
+            <div className="game-menu-actions">
+              {GAME_MODES.map((gameMode) => {
+                const available = (selectedSongSummary.availableGameModes ?? []).includes(gameMode);
+                return (
+                  <button
+                    key={gameMode}
+                    type="button"
+                    className={selectedGameMode === gameMode ? "" : "secondary"}
+                    disabled={!available}
+                    onClick={() => setSelectedGameMode(gameMode)}
+                  >
+                    {formatGameModeLabel(gameMode)}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {selectedSongSummary ? (
+            <div className="game-menu-actions">
+              {GAME_DIFFICULTIES.map((difficulty) => {
+                const available =
+                  (selectedSongSummary.modeDifficultyBeatCounts?.[selectedGameMode]?.[difficulty] ?? 0) > 0;
+                return (
+                  <button
+                    key={difficulty}
+                    type="button"
+                    className={selectedDifficulty === difficulty ? "" : "secondary"}
+                    disabled={!available}
+                    onClick={() => setSelectedDifficulty(difficulty)}
+                  >
+                    {difficulty} ({selectedSongSummary.modeDifficultyBeatCounts?.[selectedGameMode]?.[difficulty] ?? 0})
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {selectedSongSummary ? (
+            <p className="small">
+              Selected mode: {formatGameModeLabel(selectedGameMode)} | difficulty: {selectedDifficulty} | notes{" "}
+              {selectedSongSummary.modeDifficultyBeatCounts?.[selectedGameMode]?.[selectedDifficulty] ?? 0}
+            </p>
+          ) : null}
           <div className="game-menu-actions">
-            <button type="button" disabled={!selectedId || loadingEntry} onClick={() => startGame()}>{loadingEntry ? "Loading Song..." : "Start Game"}</button>
+            <button
+              type="button"
+              disabled={
+                !selectedId ||
+                loadingEntry ||
+                ((selectedSongSummary?.modeDifficultyBeatCounts?.[selectedGameMode]?.[selectedDifficulty] ?? 0) <= 0 &&
+                  !(
+                    selectedGameMode === "step_arrows" &&
+                    selectedDifficulty === "normal" &&
+                    (selectedSongSummary?.majorBeatCount ?? 0) > 0
+                  ))
+              }
+              onClick={() => startGame()}
+            >
+              {loadingEntry ? "Loading Song..." : "Start Game"}
+            </button>
             <button type="button" className="secondary" disabled={!selectedId} onClick={() => setMode("scores")}>View High Scores</button>
           </div>
         </div>
@@ -730,7 +946,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
         </header>
         <div className="game-scores-screen">
           <section className="game-score-panel">
-            <h3>Song High Scores</h3>
+            <h3>Song High Scores ({formatGameModeLabel(selectedGameMode)} | {selectedDifficulty})</h3>
             {songLeaderboard.length === 0 ? <p>No scores yet for this track.</p> : (
               <ol>
                 {songLeaderboard.slice(0, 20).map((row) => (
@@ -756,89 +972,143 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
 
   return (
     <section className="game-view-shell game-mode-active">
-      <header className="game-ui-header">
-        <button type="button" className="secondary" onClick={() => goToMenu()}>Exit To Menu</button>
-        <h2>{songs.find((song) => song.beatEntryId === selectedId)?.title ?? "Gameplay"}</h2>
-        <div className="game-top-status">{phase === "finished" ? "Song Complete" : phase === "running" ? "Running" : ""}</div>
-      </header>
-
-      <div className="ddr-hud">
-        <div className="ddr-life"><span>LIFE</span><div className="ddr-life-bar"><div className="ddr-life-fill" style={{ width: `${lifePercent}%` }} /></div></div>
-        <div className="ddr-score-stack"><span className="ddr-score-label">SCORE</span><strong>{totalScore}</strong></div>
-        <div className="ddr-score-stack"><span className="ddr-score-label">COMBO</span><strong>{score.combo}</strong></div>
-        <div className="ddr-score-stack"><span className="ddr-score-label">HOLD BONUS</span><strong>{holdBonusPoints}</strong></div>
-        <div className="ddr-progress"><div className="ddr-progress-fill" style={{ width: `${durationSeconds > 0 ? (currentTimeSeconds / durationSeconds) * 100 : 0}%` }} /><span>{currentTimeSeconds.toFixed(1)} / {durationSeconds.toFixed(1)}</span></div>
-      </div>
-
-      <div className="ddr-field">
-        <div className="ddr-lanes">
-          {laneOrder.map((lane) => (
-            <div key={lane} className={`ddr-lane lane-${lane}`}>
-              {visibleNotes.filter((note) => note.lane === lane).map((note) => {
-                const timeUntilHit = note.timeSeconds - currentTimeSeconds;
-                const progress = 1 - timeUntilHit / Math.max(0.05, runtimeConfig.gameApproachSeconds);
-                const topPercent = 92 - progress * 87;
-                const isHold = note.type === "hold" && note.endSeconds - note.timeSeconds >= HOLD_MIN_SECONDS;
-                const tailSeconds = Math.max(0, note.endSeconds - note.timeSeconds);
-                const holdHeightPx = Math.max(58, (tailSeconds / Math.max(0.05, runtimeConfig.gameApproachSeconds)) * 240);
-                return (
-                  <div key={note.id} className={`ddr-note lane-${note.lane}${note.judged ? " judged" : ""}${note.holdStarted && !note.judged ? " holding" : ""}${isHold ? " hold-note" : ""}`} style={{ top: `${topPercent}%`, ...(isHold ? { height: `${holdHeightPx}px` } : null) } as CSSProperties}>
-                    <img className={`ddr-arrow-graphic beat ${isHold ? "top-cap" : "single"}`} src={beatArrowImages[note.lane]} alt="" draggable={false} />
-                  </div>
-                );
-              })}
+      <div className={`ddr-field${selectedGameMode === "orb_beat" ? ` orb-field${isLandscape ? " landscape" : " portrait"}` : ""}`}>
+        <div className="game-play-overlay">
+          <div className="game-play-topbar">
+            <button type="button" className="secondary game-play-exit" onClick={() => goToMenu()}>Exit</button>
+            <div className="game-play-title-block">
+              <div className="game-play-title">
+                {songs.find((song) => song.beatEntryId === selectedId)?.title ?? "Gameplay"}
+              </div>
+              <div className="game-play-subtitle">{formatGameModeLabel(selectedGameMode)} | {selectedDifficulty}</div>
             </div>
-          ))}
+            <div className="game-top-status">{phase === "finished" ? "Complete" : phase === "running" ? "Live" : ""}</div>
+          </div>
+          <div className="game-play-hud">
+            <div className="ddr-life"><span>LIFE</span><div className="ddr-life-bar"><div className="ddr-life-fill" style={{ width: `${lifePercent}%` }} /></div></div>
+            <div className="ddr-score-stack"><span className="ddr-score-label">SCORE</span><strong>{totalScore}</strong></div>
+            <div className="ddr-score-stack"><span className="ddr-score-label">COMBO</span><strong>{score.combo}</strong></div>
+          </div>
         </div>
 
-        <div className="ddr-step-zone">
-          {laneOrder.map((lane) => (
-            <button
-              key={lane}
-              type="button"
-              disabled={phase !== "running"}
-              className={`ddr-receptor lane-${lane}${pressedLanes[lane] ? " pressed" : ""}${heldLanes[lane] ? " held" : ""}`}
-              onMouseDown={() => handleLaneMouseDown(lane)}
-              onMouseUp={() => releaseLane(lane)}
-              onMouseLeave={() => releaseLane(lane)}
-              onTouchStart={(event) => handleLaneTouchStart(event, lane)}
-              onTouchEnd={() => releaseLane(lane)}
-              onTouchCancel={() => releaseLane(lane)}
-            >
-              <img className="ddr-arrow-graphic control" src={controlArrowImages[lane]} alt="" draggable={false} />
-            </button>
-          ))}
+        <div className="game-play-stage">
+          {selectedGameMode === "orb_beat" ? (
+            <>
+              <div className="orb-core" />
+              <div className="orb-lanes">
+                {activeLanes.map((lane) => {
+                  const laneNotes = visibleNotes.filter((note) => note.lane === lane);
+                  return (
+                    <div key={lane} className={`orb-lane lane-${lane}`}>
+                      {laneNotes.map((note) => {
+                        const timeUntilHit = note.timeSeconds - currentTimeSeconds;
+                        const progress = 1 - timeUntilHit / Math.max(0.05, runtimeConfig.gameApproachSeconds);
+                        const distancePercent = Math.max(0, Math.min(100, progress * 100));
+                        const isHold = note.type === "hold" && note.endSeconds - note.timeSeconds >= HOLD_MIN_SECONDS;
+                        const tailScale = Math.max(
+                          0.4,
+                          Math.min(2.5, (note.endSeconds - note.timeSeconds) / Math.max(0.08, runtimeConfig.gameApproachSeconds))
+                        );
+                        return (
+                          <div
+                            key={note.id}
+                            className={`orb-note lane-${note.lane}${note.judged ? " judged" : ""}${note.holdStarted && !note.judged ? " holding" : ""}${isHold ? " hold-note" : ""}`}
+                            style={{
+                              "--orb-progress": `${distancePercent}%`,
+                              "--orb-tail-scale": String(tailScale)
+                            } as CSSProperties}
+                          >
+                            <span className="orb-note-core" />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="orb-control-grid">
+                {activeLanes.map((lane) => (
+                  <div key={lane} className={`orb-control-anchor lane-${lane}`}>
+                    <button
+                      type="button"
+                      disabled={phase !== "running"}
+                      className={`orb-control lane-${lane}${pressedLanes[lane] ? " pressed" : ""}${heldLanes[lane] ? " held" : ""}`}
+                      onMouseDown={() => handleLaneMouseDown(lane)}
+                      onMouseUp={() => releaseLane(lane)}
+                      onMouseLeave={() => releaseLane(lane)}
+                      onTouchStart={(event) => handleLaneTouchStart(event, lane)}
+                      onTouchEnd={() => releaseLane(lane)}
+                      onTouchCancel={() => releaseLane(lane)}
+                    >
+                      <span>{orbControlLabels[lane as OrbBeatLane]}</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="ddr-lanes">
+                {stepArrowLaneOrder.map((lane) => (
+                  <div key={lane} className={`ddr-lane lane-${lane}`}>
+                    {visibleNotes.filter((note) => note.lane === lane).map((note) => {
+                      const timeUntilHit = note.timeSeconds - currentTimeSeconds;
+                      const progress = 1 - timeUntilHit / Math.max(0.05, runtimeConfig.gameApproachSeconds);
+                      const topPercent = 92 - progress * 87;
+                      const isHold = note.type === "hold" && note.endSeconds - note.timeSeconds >= HOLD_MIN_SECONDS;
+                      const tailSeconds = Math.max(0, note.endSeconds - note.timeSeconds);
+                      const holdHeightPx = Math.max(58, (tailSeconds / Math.max(0.05, runtimeConfig.gameApproachSeconds)) * 240);
+                      return (
+                        <div key={note.id} className={`ddr-note lane-${note.lane}${note.judged ? " judged" : ""}${note.holdStarted && !note.judged ? " holding" : ""}${isHold ? " hold-note" : ""}`} style={{ top: `${topPercent}%`, ...(isHold ? { height: `${holdHeightPx}px` } : null) } as CSSProperties}>
+                          <img className={`ddr-arrow-graphic beat ${isHold ? "top-cap" : "single"}`} src={beatArrowImages[note.lane as StepArrowLane]} alt="" draggable={false} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+
+              <div className="ddr-step-zone">
+                {stepArrowLaneOrder.map((lane) => (
+                  <button
+                    key={lane}
+                    type="button"
+                    disabled={phase !== "running"}
+                    className={`ddr-receptor lane-${lane}${pressedLanes[lane] ? " pressed" : ""}${heldLanes[lane] ? " held" : ""}`}
+                    onMouseDown={() => handleLaneMouseDown(lane)}
+                    onMouseUp={() => releaseLane(lane)}
+                    onMouseLeave={() => releaseLane(lane)}
+                    onTouchStart={(event) => handleLaneTouchStart(event, lane)}
+                    onTouchEnd={() => releaseLane(lane)}
+                    onTouchCancel={() => releaseLane(lane)}
+                  >
+                    <img className="ddr-arrow-graphic control" src={controlArrowImages[lane]} alt="" draggable={false} />
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {lastJudgement ? (
+            <div key={`${lastJudgement}-${judgementEventId}`} className={`ddr-judge-popup ${lastJudgement}`}>
+              {lastJudgement.toUpperCase()}
+            </div>
+          ) : null}
+          {score.combo > 1 ? <div className="ddr-combo-popup">{score.combo} COMBO</div> : null}
+          {phase === "countdown" && countdownBeats > 0 ? <div className="game-countdown-overlay">{countdownBeats}</div> : null}
+
+          {resultsModal.visible ? (
+            <div className="game-results-modal" role="dialog" aria-modal="true">
+              <h3>Song Complete</h3>
+              <p className="result-line">Score: <strong>{resultsModal.score}</strong></p>
+              <p className="result-line">Accuracy: <strong>{resultsModal.percentage.toFixed(2)}%</strong></p>
+              {canSubmitHolderScore && resultsModal.rank ? <p className="result-line">Rank: <strong>#{resultsModal.rank}</strong></p> : null}
+              <p className="small">{resultsModal.message}</p>
+              <button type="button" onClick={() => goToMenu()}>Back To Menu</button>
+            </div>
+          ) : null}
         </div>
-
-        {lastJudgement ? (
-          <div key={`${lastJudgement}-${judgementEventId}`} className={`ddr-judge-popup ${lastJudgement}`}>
-            {lastJudgement.toUpperCase()}
-          </div>
-        ) : null}
-        {score.combo > 1 ? <div className="ddr-combo-popup">{score.combo} COMBO</div> : null}
-        {phase === "countdown" && countdownBeats > 0 ? <div className="game-countdown-overlay">{countdownBeats}</div> : null}
-
-        {resultsModal.visible ? (
-          <div className="game-results-modal" role="dialog" aria-modal="true">
-            <h3>Song Complete</h3>
-            <p className="result-line">Score: <strong>{resultsModal.score}</strong></p>
-            <p className="result-line">Accuracy: <strong>{resultsModal.percentage.toFixed(2)}%</strong></p>
-            {canSubmitHolderScore && resultsModal.rank ? <p className="result-line">Rank: <strong>#{resultsModal.rank}</strong></p> : null}
-            <p className="small">{resultsModal.message}</p>
-            <button type="button" onClick={() => goToMenu()}>Back To Menu</button>
-          </div>
-        ) : null}
       </div>
-
-      <section className="ddr-footer">
-        <div className="ddr-footer-judgement">
-          <span>Perfect {score.perfect}</span>
-          <span>Great {score.great}</span>
-          <span>Good {score.good}</span>
-          <span>Poor {score.poor}</span>
-          <span>Miss {score.miss}</span>
-        </div>
-      </section>
     </section>
   );
 }

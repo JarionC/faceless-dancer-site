@@ -1,5 +1,6 @@
 import { db } from "../../db/sqlite.js";
 import { createId } from "../../utils/crypto.js";
+import { GameDifficulty, GameMode, normalizeGameDifficulty, normalizeGameMode } from "./difficultyCharts.js";
 
 export interface GameSongRow {
   id: string;
@@ -139,6 +140,8 @@ export function setSongCoverImageForEntry(beatEntryId: string, coverImageFileNam
 export function createScore(params: {
   beatEntryId: string;
   userId: string;
+  gameMode?: GameMode;
+  difficulty?: GameDifficulty;
   displayName: string;
   score: number;
   maxCombo: number;
@@ -152,6 +155,8 @@ export function createScore(params: {
   if (!song || song.is_enabled !== 1) {
     return { ok: false as const, reason: "Song is not enabled." };
   }
+  const gameMode = normalizeGameMode(params.gameMode);
+  const difficulty = normalizeGameDifficulty(params.difficulty);
 
   db.prepare(
     `INSERT INTO game_scores (
@@ -159,6 +164,8 @@ export function createScore(params: {
       song_id,
       user_id,
       beat_entry_id,
+      game_mode,
+      difficulty,
       display_name,
       score,
       max_combo,
@@ -167,12 +174,14 @@ export function createScore(params: {
       good,
       poor,
       miss
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     createId(),
     song.id,
     params.userId,
     params.beatEntryId,
+    gameMode,
+    difficulty,
     params.displayName,
     params.score,
     params.maxCombo,
@@ -186,12 +195,20 @@ export function createScore(params: {
   return { ok: true as const };
 }
 
-export function listSongLeaderboard(beatEntryId: string) {
+export function listSongLeaderboard(
+  beatEntryId: string,
+  gameModeValue?: GameMode,
+  difficultyValue?: GameDifficulty
+) {
+  const gameMode = normalizeGameMode(gameModeValue);
+  const difficulty = normalizeGameDifficulty(difficultyValue);
   return db
     .prepare(
       `SELECT
          gs.display_name AS displayName,
          u.public_key AS publicKey,
+         gs.game_mode AS gameMode,
+         gs.difficulty AS difficulty,
          MAX(gs.score) AS score,
          MAX(gs.max_combo) AS maxCombo,
          MAX(gs.perfect) AS perfect,
@@ -203,13 +220,17 @@ export function listSongLeaderboard(beatEntryId: string) {
        FROM game_scores gs
        JOIN users u ON u.id = gs.user_id
        WHERE gs.beat_entry_id = ?
-       GROUP BY gs.user_id, gs.display_name, u.public_key
+         AND gs.game_mode = ?
+         AND gs.difficulty = ?
+       GROUP BY gs.user_id, gs.display_name, u.public_key, gs.game_mode, gs.difficulty
        ORDER BY score DESC, updatedAt ASC
        LIMIT 100`
     )
-    .all(beatEntryId) as Array<{
+    .all(beatEntryId, gameMode, difficulty) as Array<{
     displayName: string;
     publicKey: string;
+    gameMode: GameMode;
+    difficulty: GameDifficulty;
     score: number;
     maxCombo: number;
     perfect: number;
@@ -225,9 +246,9 @@ export function listOverallLeaderboard() {
   return db
     .prepare(
       `WITH best_per_song AS (
-         SELECT user_id, beat_entry_id, MAX(score) AS best_score
+         SELECT user_id, beat_entry_id, game_mode, difficulty, MAX(score) AS best_score
          FROM game_scores
-         GROUP BY user_id, beat_entry_id
+         GROUP BY user_id, beat_entry_id, game_mode, difficulty
        ),
        display_names AS (
          SELECT user_id, display_name, MAX(created_at) AS latest

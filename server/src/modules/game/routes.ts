@@ -7,6 +7,7 @@ import {
   createSongCoverReadStream,
   createSeparatedSourceReadStream,
   listSavedBeatEntries,
+  materializeLegacyNormalGameBeats,
   listSeparatedSources,
   readSavedBeatEntry,
   readSeparatedLogTail,
@@ -15,6 +16,14 @@ import {
   saveMajorBeatsBundle,
   saveSeparatedSources,
 } from "./storage.js";
+import {
+  getAvailableDifficulties,
+  getAvailableGameModes,
+  getDifficultyBeatCounts,
+  getModeDifficultyBeatCounts,
+  normalizeGameDifficulty,
+  normalizeGameMode,
+} from "./difficultyCharts.js";
 import {
   createScore,
   findSongByEntryId,
@@ -215,7 +224,16 @@ router.post("/api/beats/:id/game-beats", requireAuth, requireAdmin, async (req, 
   return res.json({
     ok: true,
     id: req.params.id,
-    gameBeatCount: Array.isArray(updated.gameBeats) ? updated.gameBeats.length : 0,
+    gameMode: normalizeGameMode(payload?.gameMode),
+    difficulty: normalizeGameDifficulty(payload?.difficulty),
+    gameBeatCount:
+      getDifficultyBeatCounts(updated, normalizeGameMode(payload?.gameMode))[
+        normalizeGameDifficulty(payload?.difficulty)
+      ] ?? 0,
+    availableGameModes: updated.availableGameModes ?? [],
+    availableDifficulties: updated.availableDifficulties ?? [],
+    difficultyBeatCounts: updated.difficultyBeatCounts ?? {},
+    modeDifficultyBeatCounts: updated.modeDifficultyBeatCounts ?? {},
   });
 });
 
@@ -422,9 +440,43 @@ router.put("/api/catalog/songs/:entryId", requireAuth, requireAdmin, async (req,
   return res.json({ song });
 });
 
+router.post("/api/catalog/songs/:entryId/materialize-normal-difficulty", requireAuth, requireAdmin, async (req, res) => {
+  const entryId = String(req.params.entryId || "").trim();
+  if (!entryId) {
+    return res.status(400).json({ error: "entryId is required." });
+  }
+
+  const updated = await materializeLegacyNormalGameBeats(env.beatStorageDir, entryId);
+  if (!updated) {
+    return res.status(404).json({ error: "Saved entry not found." });
+  }
+
+  return res.json({
+    ok: true,
+    entryId,
+    availableGameModes: updated.availableGameModes ?? [],
+    availableDifficulties: updated.availableDifficulties ?? [],
+    difficultyBeatCounts: updated.difficultyBeatCounts ?? {},
+    modeDifficultyBeatCounts: updated.modeDifficultyBeatCounts ?? {},
+    hasLegacyNormalChartOnly: updated.hasLegacyNormalChartOnly ?? false
+  });
+});
+
 router.get("/api/public/songs/enabled", async (req, res) => {
   const enabledSongs = listEnabledSongs();
-  const songs: Array<{ beatEntryId: string; title: string; majorBeatCount: number; gameBeatCount: number; coverImageUrl: string | null }> = [];
+  const songs: Array<{
+    beatEntryId: string;
+    title: string;
+    majorBeatCount: number;
+    gameBeatCount: number;
+    coverImageUrl: string | null;
+    availableGameModes: Array<"step_arrows" | "orb_beat">;
+    availableDifficulties: Array<"easy" | "normal" | "hard">;
+    difficultyBeatCounts: Partial<Record<"easy" | "normal" | "hard", number>>;
+    modeDifficultyBeatCounts: Partial<
+      Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", number>>>
+    >;
+  }> = [];
   for (const song of enabledSongs) {
     const entry = await readSavedBeatEntry(env.beatStorageDir, song.beatEntryId);
     if (!entry) {
@@ -434,7 +486,11 @@ router.get("/api/public/songs/enabled", async (req, res) => {
       beatEntryId: song.beatEntryId,
       title: song.title,
       majorBeatCount: Array.isArray(entry.majorBeats) ? entry.majorBeats.length : 0,
-      gameBeatCount: Array.isArray(entry.gameBeats) ? entry.gameBeats.length : 0,
+      gameBeatCount: getDifficultyBeatCounts(entry).normal ?? 0,
+      availableGameModes: getAvailableGameModes(entry),
+      availableDifficulties: getAvailableDifficulties(entry),
+      difficultyBeatCounts: getDifficultyBeatCounts(entry),
+      modeDifficultyBeatCounts: getModeDifficultyBeatCounts(entry),
       coverImageUrl: song.coverImageFileName
         ? `${req.baseUrl}/api/public/songs/${encodeURIComponent(song.beatEntryId)}/cover`
         : null,
@@ -502,7 +558,13 @@ router.get("/api/public/analyze/:id/result", async (req, res) => {
 });
 
 router.get("/api/scores/song/:entryId", (req, res) => {
-  return res.json({ leaderboard: listSongLeaderboard(req.params.entryId) });
+  const gameMode = normalizeGameMode(req.query.gameMode);
+  const difficulty = normalizeGameDifficulty(req.query.difficulty);
+  return res.json({
+    leaderboard: listSongLeaderboard(req.params.entryId, gameMode, difficulty),
+    gameMode,
+    difficulty
+  });
 });
 
 router.get("/api/scores/overall", (_req, res) => {
@@ -517,6 +579,8 @@ router.post("/api/scores/song/:entryId", requireAuth, requireHolder, (req, res) 
 
   const body = req.body as {
     displayName: string;
+    gameMode?: "step_arrows" | "orb_beat";
+    difficulty?: "easy" | "normal" | "hard";
     score: number;
     maxCombo?: number;
     perfect?: number;
@@ -529,6 +593,8 @@ router.post("/api/scores/song/:entryId", requireAuth, requireHolder, (req, res) 
   const result = createScore({
     beatEntryId: req.params.entryId,
     userId: req.session!.userId,
+    gameMode: normalizeGameMode(body.gameMode),
+    difficulty: normalizeGameDifficulty(body.difficulty),
     displayName: body.displayName.trim(),
     score: Math.floor(body.score),
     maxCombo: Math.floor(body.maxCombo ?? 0),

@@ -33,6 +33,36 @@ export interface SavedBeatSummary {
   gameBeatCount?: number;
   sourceEventCount?: number;
   separatedSourceCount?: number;
+  availableGameModes?: Array<"step_arrows" | "orb_beat">;
+  availableDifficulties?: Array<"easy" | "normal" | "hard">;
+  difficultyBeatCounts?: Partial<Record<"easy" | "normal" | "hard", number>>;
+  modeDifficultyBeatCounts?: Partial<
+    Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", number>>>
+  >;
+  hasLegacyNormalChartOnly?: boolean;
+}
+
+export interface DifficultyChart {
+  gameBeats?: BeatPoint[];
+  gameNotes?: Array<{
+    timeSeconds: number;
+    endSeconds: number;
+    strength: number;
+    source?: SourceName;
+  }>;
+  gameBeatSelections?: Array<{
+    source: SourceName;
+    startSeconds: number;
+    endSeconds: number;
+    minStrength?: number;
+  }>;
+  gameBeatConfig?: {
+    gameMode?: "step_arrows" | "orb_beat";
+    mergeWindowSeconds?: number;
+    laneStrengthThresholds?: Record<SourceName, number>;
+    analysisOverrides?: Record<string, number | boolean>;
+  };
+  gameBeatsUpdatedAtIso?: string;
 }
 
 export interface SavedBeatEntry {
@@ -69,11 +99,23 @@ export interface SavedBeatEntry {
     minStrength?: number;
   }>;
   gameBeatConfig?: {
+    gameMode?: "step_arrows" | "orb_beat";
     mergeWindowSeconds?: number;
     laneStrengthThresholds?: Record<SourceName, number>;
     analysisOverrides?: Record<string, number | boolean>;
   };
   gameBeatsUpdatedAtIso?: string;
+  difficultyCharts?: Partial<Record<"easy" | "normal" | "hard", DifficultyChart>>;
+  modeDifficultyCharts?: Partial<
+    Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", DifficultyChart>>>
+  >;
+  availableGameModes?: Array<"step_arrows" | "orb_beat">;
+  availableDifficulties?: Array<"easy" | "normal" | "hard">;
+  difficultyBeatCounts?: Partial<Record<"easy" | "normal" | "hard", number>>;
+  modeDifficultyBeatCounts?: Partial<
+    Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", number>>>
+  >;
+  hasLegacyNormalChartOnly?: boolean;
 }
 
 export interface BeatEntry {

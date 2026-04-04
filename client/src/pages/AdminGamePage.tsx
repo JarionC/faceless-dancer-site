@@ -1,14 +1,8 @@
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useState } from "preact/hooks";
 import { UploadForm } from "../game/components/UploadForm";
-import { BeatChart } from "../game/components/BeatChart";
-import { AudioPlayer } from "../game/components/AudioPlayer";
 import { runtimeConfig } from "../game/config/runtime";
 import { decodeAudioFile } from "../game/lib/audio/decodeAudio";
-import { extractBeatDataFromAudioBuffer } from "../game/lib/audio/extractBeatData";
-import { findProminentPeakIndices } from "../game/lib/audio/findProminentPeaks";
-import { extractSourceEventsFromAudioBuffer } from "../game/lib/audio/extractSourceEvents";
 import { fileToBase64 } from "../game/lib/file/fileToBase64";
-import type { BeatEntry } from "../game/types/beat";
 import { SavedMajorBeatsView } from "../game/components/SavedMajorBeatsView";
 import { AdminSongCatalog } from "../game/components/admin/AdminSongCatalog";
 import type { SessionState } from "../hooks/useSession";
@@ -26,61 +20,11 @@ function createEntryId(): string {
 }
 
 export function AdminGamePage({ session, setSession, refreshSession }: Props): JSX.Element {
-  const [entry, setEntry] = useState<BeatEntry | null>(null);
-  const [currentTimeSeconds, setCurrentTimeSeconds] = useState(0);
-  const [durationSeconds, setDurationSeconds] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saveStatusIsError, setSaveStatusIsError] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-
-  const extractionConfig = useMemo(
-    () => ({
-      windowSize: runtimeConfig.beatWindowSize,
-      hopSize: runtimeConfig.beatHopSize,
-      smoothingAlpha: runtimeConfig.beatSmoothingAlpha
-    }),
-    []
-  );
-  const peakConfig = useMemo(
-    () => ({
-      minProminence: runtimeConfig.peakMinProminence,
-      minStrength: runtimeConfig.peakMinStrength,
-      minDistancePoints: runtimeConfig.peakMinDistancePoints
-    }),
-    []
-  );
-  const sourceConfig = useMemo(
-    () => ({
-      windowSize: runtimeConfig.beatWindowSize,
-      hopSize: runtimeConfig.beatHopSize,
-      drumsThreshold: runtimeConfig.sourceDrumsThreshold,
-      bassThreshold: runtimeConfig.sourceBassThreshold,
-      otherThreshold: runtimeConfig.sourceOtherThreshold,
-      drumsMinDurationSeconds: runtimeConfig.sourceDrumsMinDurationSeconds,
-      bassMinDurationSeconds: runtimeConfig.sourceBassMinDurationSeconds,
-      otherMinDurationSeconds: runtimeConfig.sourceOtherMinDurationSeconds,
-      syntheticSourceCount: runtimeConfig.sourceSyntheticCount,
-      transientHopScale: runtimeConfig.sourceTransientHopScale,
-      adaptiveThresholdWindow: runtimeConfig.sourceAdaptiveThresholdWindow,
-      minInterOnsetSeconds: runtimeConfig.sourceMinInterOnsetSeconds,
-      bassDominanceRatio: runtimeConfig.sourceBassDominanceRatio,
-      bassMaxSustainSeconds: runtimeConfig.sourceBassMaxSustainSeconds,
-      drumTransientGain: runtimeConfig.sourceDrumTransientGain,
-      drumTriggerFloor: runtimeConfig.sourceDrumTriggerFloor,
-      reassignMargin: runtimeConfig.sourceReassignMargin
-    }),
-    []
-  );
-
-  useEffect(() => {
-    return () => {
-      if (entry?.audioUrl) {
-        URL.revokeObjectURL(entry.audioUrl);
-      }
-    };
-  }, [entry]);
+  const [selectedEntryId, setSelectedEntryId] = useState<string>("");
 
   if (!session.authenticated || !session.isAdmin) {
     return (
@@ -133,54 +77,6 @@ export function AdminGamePage({ session, setSession, refreshSession }: Props): J
 
     try {
       const audioBuffer = await decodeAudioFile(payload.file);
-      const beatData = extractBeatDataFromAudioBuffer(audioBuffer, extractionConfig);
-      const peakIndices = findProminentPeakIndices(beatData, peakConfig);
-      const sourceEvents = extractSourceEventsFromAudioBuffer(audioBuffer, sourceConfig);
-      const audioUrl = URL.createObjectURL(payload.file);
-
-      setEntry((previous) => {
-        if (previous?.audioUrl) {
-          URL.revokeObjectURL(previous.audioUrl);
-        }
-        return {
-          id: createEntryId(),
-          name: payload.name,
-          fileName: payload.file.name,
-          audioUrl,
-          sourceFile: payload.file,
-          durationSeconds: audioBuffer.duration,
-          beatData,
-          peakIndices,
-          sourceEvents
-        };
-      });
-      setDurationSeconds(audioBuffer.duration);
-      setCurrentTimeSeconds(0);
-    } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Failed to process audio file.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleSaveMajorBeats = async (): Promise<void> => {
-    if (!entry) {
-      return;
-    }
-
-    const majorBeats = entry.peakIndices
-      .map((index) => entry.beatData[index])
-      .filter((point): point is BeatEntry["beatData"][number] => point !== undefined)
-      .map((point) => ({
-        timeSeconds: point.timeSeconds,
-        strength: point.strength
-      }));
-
-    setIsSaving(true);
-    setSaveStatus(null);
-    setSaveStatusIsError(false);
-
-    try {
       const response = await fetch(`${runtimeConfig.beatApiBaseUrl}/api/beats/save`, {
         method: "POST",
         credentials: "include",
@@ -189,16 +85,16 @@ export function AdminGamePage({ session, setSession, refreshSession }: Props): J
         },
         body: JSON.stringify({
           entry: {
-            id: entry.id,
-            name: entry.name,
-            fileName: entry.fileName,
-            durationSeconds: entry.durationSeconds
+            id: createEntryId(),
+            name: payload.name,
+            fileName: payload.file.name,
+            durationSeconds: audioBuffer.duration
           },
-          majorBeats,
-          sourceEvents: entry.sourceEvents,
-          audioFileName: entry.sourceFile.name,
-          audioMimeType: entry.sourceFile.type || "application/octet-stream",
-          audioBase64: await fileToBase64(entry.sourceFile)
+          majorBeats: [],
+          sourceEvents: [],
+          audioFileName: payload.file.name,
+          audioMimeType: payload.file.type || "application/octet-stream",
+          audioBase64: await fileToBase64(payload.file)
         })
       });
 
@@ -213,19 +109,22 @@ export function AdminGamePage({ session, setSession, refreshSession }: Props): J
         throw new Error(responseBody.error ?? "Save failed.");
       }
 
+      if (responseBody.id) {
+        setSelectedEntryId(responseBody.id);
+      }
       setSaveStatus(
         responseBody.fileName
-          ? `Saved major beats and audio as ${responseBody.fileName} (id: ${responseBody.id ?? "n/a"})`
-          : "Saved major beats."
+          ? `Saved audio entry as ${responseBody.fileName} (id: ${responseBody.id ?? "n/a"}). It is now selected in the hybrid editor below.`
+          : "Saved audio entry."
       );
       setSaveStatusIsError(false);
-    } catch (saveError) {
+    } catch (uploadError) {
       setSaveStatus(
-        `Save failed: ${saveError instanceof Error ? saveError.message : "Unknown error."}`
+        `Save failed: ${uploadError instanceof Error ? uploadError.message : "Unknown error."}`
       );
       setSaveStatusIsError(true);
     } finally {
-      setIsSaving(false);
+      setIsProcessing(false);
     }
   };
 
@@ -263,52 +162,12 @@ export function AdminGamePage({ session, setSession, refreshSession }: Props): J
 
       <UploadForm disabled={isProcessing} onSubmit={handleUpload} />
       {error && <p className="error app-error">{error}</p>}
-
-      {entry ? (
-        <>
-          <section className="card">
-            <h3>Current Entry</h3>
-            <p><strong>Name:</strong> {entry.name}</p>
-            <p><strong>File:</strong> {entry.fileName}</p>
-            <p><strong>Duration:</strong> {entry.durationSeconds.toFixed(2)}s</p>
-            <p><strong>Beat Points:</strong> {entry.beatData.length}</p>
-            <p><strong>Prominent Peaks:</strong> {entry.peakIndices.length}</p>
-            <p><strong>Source Events:</strong> {entry.sourceEvents.length}</p>
-          </section>
-
-          <AudioPlayer
-            audioUrl={entry.audioUrl}
-            onTimeUpdate={setCurrentTimeSeconds}
-            onDurationAvailable={setDurationSeconds}
-          />
-
-          <BeatChart
-            points={entry.beatData}
-            peakIndices={entry.peakIndices}
-            sourceEvents={entry.sourceEvents}
-            currentTimeSeconds={currentTimeSeconds}
-            durationSeconds={durationSeconds}
-          />
-
-          <section className="card">
-            <button
-              type="button"
-              onClick={handleSaveMajorBeats}
-              disabled={isSaving || entry.peakIndices.length === 0}
-            >
-              {isSaving ? "Saving..." : "Save Major Beats"}
-            </button>
-            <p className="small">Saves major beats and source audio bundle for hybrid analysis.</p>
-            {saveStatus ? (
-              <p className={saveStatusIsError ? "error" : "small"}>{saveStatus}</p>
-            ) : null}
-          </section>
-        </>
-      ) : null}
+      {saveStatus ? <p className={saveStatusIsError ? "error" : "small"}>{saveStatus}</p> : null}
 
       <SavedMajorBeatsView
         apiBaseUrl={runtimeConfig.beatApiBaseUrl}
         activeWindowSeconds={runtimeConfig.majorBeatActiveWindowSeconds}
+        autoSelectEntryId={selectedEntryId}
       />
 
       <AdminSongCatalog />

@@ -1,6 +1,19 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import {
+  countDifficultyChartBeats,
+  getAvailableGameModes,
+  getAvailableDifficulties,
+  getModeDifficultyBeatCounts,
+  getDifficultyBeatCounts,
+  getModeDifficultyChart,
+  hasLegacyNormalChartOnly,
+  materializeLegacyNormalChart,
+  normalizeGameDifficulty,
+  normalizeGameMode,
+  writeModeDifficultyChart,
+} from "./difficultyCharts.js";
 
 export interface SavedBeatSummary {
   id: string;
@@ -14,6 +27,13 @@ export interface SavedBeatSummary {
   separatedSourceCount?: number;
   enabled?: boolean;
   songTitle?: string;
+  availableGameModes?: Array<"step_arrows" | "orb_beat">;
+  availableDifficulties?: Array<"easy" | "normal" | "hard">;
+  difficultyBeatCounts?: Partial<Record<"easy" | "normal" | "hard", number>>;
+  modeDifficultyBeatCounts?: Partial<
+    Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", number>>>
+  >;
+  hasLegacyNormalChartOnly?: boolean;
 }
 
 function sanitizeFileNamePart(value: string): string {
@@ -153,11 +173,10 @@ export async function listSavedBeatEntries(storageDir: string): Promise<SavedBea
     const filePath = path.join(jsonDir, fileName);
     const raw = await fsp.readFile(filePath, "utf8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const gameBeatCount = Array.isArray(parsed.gameBeats)
-      ? parsed.gameBeats.length
-      : Array.isArray(parsed.gameNotes)
-        ? parsed.gameNotes.length
-        : 0;
+    const modeDifficultyBeatCounts = getModeDifficultyBeatCounts(parsed);
+    const difficultyBeatCounts = getDifficultyBeatCounts(parsed, "step_arrows");
+    const normalChart = getModeDifficultyChart(parsed, "step_arrows", "normal");
+    const gameBeatCount = countDifficultyChartBeats(normalChart);
 
     summaries.push({
       id: String(parsed.id ?? ""),
@@ -167,6 +186,11 @@ export async function listSavedBeatEntries(storageDir: string): Promise<SavedBea
       durationSeconds: Number((parsed.entry as { durationSeconds?: number } | undefined)?.durationSeconds ?? 0),
       majorBeatCount: Array.isArray(parsed.majorBeats) ? parsed.majorBeats.length : 0,
       gameBeatCount,
+      availableGameModes: getAvailableGameModes(parsed),
+      difficultyBeatCounts,
+      modeDifficultyBeatCounts,
+      availableDifficulties: getAvailableDifficulties(parsed),
+      hasLegacyNormalChartOnly: hasLegacyNormalChartOnly(parsed),
       sourceEventCount: Array.isArray(parsed.sourceEvents) ? parsed.sourceEvents.length : 0,
       separatedSourceCount: Array.isArray(parsed.separatedSources) ? parsed.separatedSources.length : 0
     });
@@ -189,7 +213,15 @@ export async function readSavedBeatEntry(storageDir: string, id: string): Promis
   }
 
   const raw = await fsp.readFile(jsonPath, "utf8");
-  return JSON.parse(raw) as Record<string, unknown>;
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  return {
+    ...parsed,
+    availableGameModes: getAvailableGameModes(parsed),
+    difficultyBeatCounts: getDifficultyBeatCounts(parsed),
+    modeDifficultyBeatCounts: getModeDifficultyBeatCounts(parsed),
+    availableDifficulties: getAvailableDifficulties(parsed),
+    hasLegacyNormalChartOnly: hasLegacyNormalChartOnly(parsed)
+  };
 }
 
 export function createAudioReadStream(
@@ -305,6 +337,8 @@ export async function saveGameBeatsForEntry(
   storageDir: string,
   id: string,
   payload: {
+    gameMode?: "step_arrows" | "orb_beat";
+    difficulty?: "easy" | "normal" | "hard";
     gameBeats: unknown[];
     gameNotes?: unknown[];
     gameBeatSelections?: unknown[];
@@ -319,20 +353,52 @@ export async function saveGameBeatsForEntry(
   const { jsonDir } = await ensureStorageDirs(storageDir);
   const safeId = sanitizeId(id);
   const jsonPath = path.join(jsonDir, `${safeId}.json`);
-  const updated = {
-    ...entry,
+  const gameMode = normalizeGameMode(payload.gameMode);
+  const difficulty = normalizeGameDifficulty(payload.difficulty);
+  const updated = writeModeDifficultyChart(entry, gameMode, difficulty, {
     gameBeats: Array.isArray(payload.gameBeats) ? payload.gameBeats : [],
     gameNotes: Array.isArray(payload.gameNotes) ? payload.gameNotes : [],
     gameBeatSelections: Array.isArray(payload.gameBeatSelections) ? payload.gameBeatSelections : [],
     gameBeatConfig:
       payload.gameBeatConfig && typeof payload.gameBeatConfig === "object"
-        ? payload.gameBeatConfig
+        ? { ...payload.gameBeatConfig, gameMode }
         : {},
     gameBeatsUpdatedAtIso: new Date().toISOString()
-  };
+  });
 
   await fsp.writeFile(jsonPath, JSON.stringify(updated, null, 2), "utf8");
-  return updated;
+  return {
+    ...updated,
+    availableGameModes: getAvailableGameModes(updated),
+    difficultyBeatCounts: getDifficultyBeatCounts(updated),
+    modeDifficultyBeatCounts: getModeDifficultyBeatCounts(updated),
+    availableDifficulties: getAvailableDifficulties(updated),
+    hasLegacyNormalChartOnly: hasLegacyNormalChartOnly(updated)
+  };
+}
+
+export async function materializeLegacyNormalGameBeats(
+  storageDir: string,
+  id: string
+): Promise<Record<string, unknown> | null> {
+  const entry = await readSavedBeatEntry(storageDir, id);
+  if (!entry) {
+    return null;
+  }
+
+  const updated = materializeLegacyNormalChart(entry);
+  const { jsonDir } = await ensureStorageDirs(storageDir);
+  const safeId = sanitizeId(id);
+  const jsonPath = path.join(jsonDir, `${safeId}.json`);
+  await fsp.writeFile(jsonPath, JSON.stringify(updated, null, 2), "utf8");
+  return {
+    ...updated,
+    availableGameModes: getAvailableGameModes(updated),
+    difficultyBeatCounts: getDifficultyBeatCounts(updated),
+    modeDifficultyBeatCounts: getModeDifficultyBeatCounts(updated),
+    availableDifficulties: getAvailableDifficulties(updated),
+    hasLegacyNormalChartOnly: hasLegacyNormalChartOnly(updated)
+  };
 }
 
 export async function saveSongCoverImage(

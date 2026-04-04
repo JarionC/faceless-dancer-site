@@ -59,7 +59,7 @@ export function UploadForm({ disabled, onSubmit }: UploadFormProps): JSX.Element
       </label>
       {error && <p className="error">{error}</p>}
       <button type="submit" disabled={disabled}>
-        {disabled ? "Processing..." : "Extract Beat Data"}
+        {disabled ? "Saving..." : "Add Audio Entry"}
       </button>
     </form>
   );

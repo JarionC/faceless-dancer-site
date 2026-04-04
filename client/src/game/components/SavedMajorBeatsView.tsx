@@ -7,10 +7,21 @@ import { decodeAudioArrayBuffer } from "../lib/audio/decodeAudio";
 import { extractBeatDataFromAudioBuffer } from "../lib/audio/extractBeatData";
 import { findZeroSlopePeakIndices } from "../lib/audio/findZeroSlopePeaks";
 import { runtimeConfig } from "../config/runtime";
+import {
+  GAME_DIFFICULTIES,
+  GAME_MODES,
+  type GameDifficulty,
+  type GameMode,
+  getAvailableDifficulties,
+  getAvailableGameModes,
+  getModeDifficultyBeatCount,
+  getModeDifficultyChart,
+} from "../lib/game/difficultyCharts";
 
 interface SavedMajorBeatsViewProps {
   apiBaseUrl: string;
   activeWindowSeconds: number;
+  autoSelectEntryId?: string;
 }
 
 interface HybridAnalysisResult {
@@ -241,7 +252,8 @@ function HelpBubble({ text }: { text: string }): JSX.Element {
 
 export function SavedMajorBeatsView({
   apiBaseUrl,
-  activeWindowSeconds
+  activeWindowSeconds,
+  autoSelectEntryId
 }: SavedMajorBeatsViewProps): JSX.Element {
   const engineRef = useRef<PrecisePlaybackEngine | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -276,7 +288,8 @@ export function SavedMajorBeatsView({
   const [analysisResult, setAnalysisResult] = useState<HybridAnalysisResult | null>(null);
   const [loadingAnalysisResult, setLoadingAnalysisResult] = useState(false);
   const [isStartingAnalysis, setIsStartingAnalysis] = useState(false);
-  const [chartDataMode, setChartDataMode] = useState<ChartDataMode>("separated");
+  const [chartDataMode, setChartDataMode] = useState<ChartDataMode>("hybrid");
+  const [controlDefaults, setControlDefaults] = useState<ControlDefaultsResponse | null>(null);
   const [analysisOverrides, setAnalysisOverrides] = useState<AnalysisOverrides>(
     createDefaultAnalysisOverrides()
   );
@@ -293,6 +306,8 @@ export function SavedMajorBeatsView({
     status: "idle" | "saving" | "saved" | "failed";
     message?: string;
   }>({ status: "idle" });
+  const [selectedGameMode, setSelectedGameMode] = useState<GameMode>("step_arrows");
+  const [selectedDifficulty, setSelectedDifficulty] = useState<GameDifficulty>("normal");
 
   const stopRaf = (): void => {
     if (rafRef.current !== null) {
@@ -457,6 +472,14 @@ export function SavedMajorBeatsView({
   }, []);
 
   useEffect(() => {
+    if (!autoSelectEntryId) {
+      return;
+    }
+    setSelectedId(autoSelectEntryId);
+    refreshList().catch(() => undefined);
+  }, [autoSelectEntryId]);
+
+  useEffect(() => {
     if (!selectedId) {
       setSelectedEntry(null);
       return;
@@ -476,7 +499,10 @@ export function SavedMajorBeatsView({
       setSeparationLogText(null);
       setAnalysisState(null);
       setAnalysisResult(null);
-      setChartDataMode("separated");
+      setChartDataMode("hybrid");
+      setSelectedGameMode("step_arrows");
+      setSelectedDifficulty("normal");
+      setControlDefaults(null);
       setAnalysisOverrides(createDefaultAnalysisOverrides());
       setLaneStrengthThresholds({
         hybrid_band_low: runtimeConfig.gameBeatEditorDefaultMinStrength,
@@ -509,14 +535,8 @@ export function SavedMajorBeatsView({
         setDurationSeconds(engine.getDurationSeconds() || detail.entry.entry.durationSeconds);
         setSelectedEntry(detail.entry);
         const defaults = await loadControlDefaults();
-        if (detail.entry.gameBeatConfig?.analysisOverrides) {
-          setAnalysisOverrides((previous) =>
-            normalizeAnalysisOverrides({
-              ...previous,
-              ...(detail.entry.gameBeatConfig?.analysisOverrides ?? {})
-            } as AnalysisOverrides)
-          );
-        } else if (defaults?.analysisOverrides) {
+        setControlDefaults(defaults);
+        if (defaults?.analysisOverrides) {
           setAnalysisOverrides((previous) =>
             normalizeAnalysisOverrides({
               ...previous,
@@ -524,26 +544,11 @@ export function SavedMajorBeatsView({
             } as AnalysisOverrides)
           );
         }
-        if (detail.entry.gameBeatConfig?.laneStrengthThresholds) {
-          setLaneStrengthThresholds((previous) => ({
-            ...previous,
-            ...detail.entry.gameBeatConfig?.laneStrengthThresholds
-          }));
-        } else if (defaults?.laneStrengthThresholds) {
+        if (defaults?.laneStrengthThresholds) {
           setLaneStrengthThresholds((previous) => ({
             ...previous,
             ...defaults.laneStrengthThresholds
           }));
-        }
-        if (detail.entry.gameBeatSelections && detail.entry.gameBeatSelections.length > 0) {
-          setGameBeatSelections(
-            detail.entry.gameBeatSelections.map((selection, index) => ({
-              id: `persisted-${index}`,
-              source: selection.source,
-              startSeconds: selection.startSeconds,
-              endSeconds: selection.endSeconds
-            }))
-          );
         }
         setCurrentTimeSeconds(0);
         if (Array.isArray(detail.entry.separatedSources) && detail.entry.separatedSources.length > 0) {
@@ -564,6 +569,52 @@ export function SavedMajorBeatsView({
 
     loadSelection().catch(() => undefined);
   }, [apiBaseUrl, selectedId]);
+
+  useEffect(() => {
+    if (!selectedEntry) {
+      return;
+    }
+    const modeDifficulties = getAvailableDifficulties(selectedEntry, selectedGameMode);
+    if (modeDifficulties.length > 0 && !modeDifficulties.includes(selectedDifficulty)) {
+      setSelectedDifficulty(modeDifficulties.includes("normal") ? "normal" : modeDifficulties[0]);
+      return;
+    }
+    const defaults = controlDefaults?.analysisOverrides
+      ? normalizeAnalysisOverrides({
+          ...createDefaultAnalysisOverrides(),
+          ...(controlDefaults.analysisOverrides ?? {})
+        } as AnalysisOverrides)
+      : createDefaultAnalysisOverrides();
+    const chart = getModeDifficultyChart(selectedEntry, selectedGameMode, selectedDifficulty);
+    const chartConfig = chart?.gameBeatConfig;
+
+    setAnalysisOverrides(
+      normalizeAnalysisOverrides({
+        ...defaults,
+        ...(chartConfig?.analysisOverrides ?? {})
+      } as AnalysisOverrides)
+    );
+    setLaneStrengthThresholds({
+      hybrid_band_low: runtimeConfig.gameBeatEditorDefaultMinStrength,
+      hybrid_band_mid: runtimeConfig.gameBeatEditorDefaultMinStrength,
+      hybrid_band_high: runtimeConfig.gameBeatEditorDefaultMinStrength,
+      hybrid_band_combined: runtimeConfig.gameBeatEditorDefaultMinStrength,
+      hybrid_sustain: runtimeConfig.gameBeatEditorDefaultMinStrength,
+      ...(controlDefaults?.laneStrengthThresholds ?? {}),
+      ...(chartConfig?.laneStrengthThresholds ?? {})
+    });
+    setGameBeatSelections(
+      (chart?.gameBeatSelections ?? []).map((selection, index) => ({
+        id: `persisted-${selectedDifficulty}-${index}`,
+        source: selection.source,
+        startSeconds: selection.startSeconds,
+        endSeconds: selection.endSeconds
+      }))
+    );
+    dragSelectionRef.current = null;
+    setDragSelection(null);
+    setSaveGameBeatsState({ status: "idle" });
+  }, [controlDefaults, selectedDifficulty, selectedEntry, selectedGameMode]);
 
   const startRealSeparation = async (): Promise<void> => {
     if (!selectedId) {
@@ -1043,6 +1094,8 @@ export function SavedMajorBeatsView({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          gameMode: selectedGameMode,
+          difficulty: selectedDifficulty,
           gameBeats: selectedGameBeats,
           gameNotes: selectedGameNotes,
           gameBeatSelections: gameBeatSelections.map((selection) => ({
@@ -1064,7 +1117,7 @@ export function SavedMajorBeatsView({
       }
       setSaveGameBeatsState({
         status: "saved",
-        message: `Saved ${payload.gameBeatCount ?? selectedGameBeats.length} game beats.`
+        message: `Saved ${payload.gameBeatCount ?? selectedGameBeats.length} ${selectedGameMode} ${selectedDifficulty} game beats.`
       });
       const detail = await fetchJson<{ ok: boolean; entry: SavedBeatEntry }>(
         `${apiBaseUrl}/api/beats/${encodeURIComponent(selectedId)}`
@@ -1087,6 +1140,18 @@ export function SavedMajorBeatsView({
     const lanes = Array.from(new Set(displayedSourceEvents.map((event) => event.source)));
     return sortSourceLabels(lanes);
   }, [displayedSourceEvents]);
+  const availableGameModes = useMemo(
+    () => getAvailableGameModes(selectedEntry),
+    [selectedEntry]
+  );
+  const availableDifficulties = useMemo(
+    () => getAvailableDifficulties(selectedEntry, selectedGameMode),
+    [selectedEntry, selectedGameMode]
+  );
+  const currentDifficultyBeatCount = useMemo(
+    () => getModeDifficultyBeatCount(selectedEntry, selectedGameMode, selectedDifficulty),
+    [selectedDifficulty, selectedEntry, selectedGameMode]
+  );
   const laneGap = sourceLanes.length > 18 ? 22 : sourceLanes.length > 10 ? 30 : 40;
   const chartHeight = Math.max(
     260,
@@ -1122,19 +1187,13 @@ export function SavedMajorBeatsView({
     if (displayedSourceEvents.length > 0) {
       return null;
     }
-    if (chartDataMode === "hybrid") {
-      return "No hybrid events to display. Run Hybrid Analysis or check analysis output.";
-    }
-    if (chartDataMode === "separated") {
-      return "No separated stem events to display. Run Real Separation first.";
-    }
-    return "No saved source events found for this entry.";
-  }, [chartDataMode, displayedSourceEvents.length]);
+    return "No hybrid events to display yet. Run Hybrid Analysis for this entry.";
+  }, [displayedSourceEvents.length]);
 
   return (
     <section className="panel saved-panel">
       <div className="saved-header">
-        <h2>Saved Major Beats</h2>
+        <h2>Saved Entries</h2>
         <button type="button" onClick={() => refreshList()} disabled={loadingList}>
           {loadingList ? "Refreshing..." : "Refresh List"}
         </button>
@@ -1167,37 +1226,20 @@ export function SavedMajorBeatsView({
       {selectedEntry && !loadingEntry && (
         <div className="saved-playback">
           <div className="separation-controls">
-            <button type="button" onClick={() => startRealSeparation()} disabled={isStartingSeparation}>
-              {isStartingSeparation ? "Starting..." : "Run Real Separation"}
-            </button>
             <button type="button" onClick={() => startHybridAnalysis()} disabled={isStartingAnalysis}>
               {isStartingAnalysis ? "Starting..." : "Run Hybrid Analysis"}
             </button>
-            <button
-              type="button"
-              onClick={() => loadSeparationLog(selectedId)}
-              disabled={!selectedId || loadingSeparationLog}
-            >
-              {loadingSeparationLog ? "Loading Log..." : "View Separation Log"}
-            </button>
-            <span>
-              Separation status: {separationStatusLabel}
-            </span>
             <span>
               Hybrid analysis status: {analysisStatusLabel}
             </span>
-            <span>Saved game beats: {selectedEntry.gameBeats?.length ?? 0}</span>
-            <label>
-              Chart Data
-              <select
-                value={chartDataMode}
-                onChange={(event) => setChartDataMode(event.target.value as ChartDataMode)}
-              >
-                <option value="separated">Separated Stem Peaks</option>
-                <option value="hybrid">Hybrid Beats + Sustains</option>
-                <option value="saved">Saved Source/Major Beats</option>
-              </select>
-            </label>
+            <span>Saved chart beats: {currentDifficultyBeatCount}</span>
+            <span>
+              Available modes: {availableGameModes.length > 0 ? availableGameModes.join(", ") : "none"}
+            </span>
+            <span>
+              Available difficulties: {availableDifficulties.length > 0 ? availableDifficulties.join(", ") : "none"}
+            </span>
+            <span>Chart data: Hybrid Beats + Sustains</span>
           </div>
           <div className="editor-grid">
             <fieldset className="editor-fieldset">
@@ -1600,8 +1642,23 @@ export function SavedMajorBeatsView({
             <fieldset className="editor-fieldset">
               <legend>Game Beat Selector</legend>
               <p className="editor-help">
-                Set lane strength filters, switch to Hybrid chart mode, then drag on a lane to add a time range.
+                Choose a game mode and difficulty, set lane strength filters, run hybrid analysis, then drag on a lane to add a time range.
               </p>
+              <div className="difficulty-selector">
+                <label>
+                  <span className="control-label">Game Mode</span>
+                  <select
+                    value={selectedGameMode}
+                    onChange={(event) => setSelectedGameMode(event.currentTarget.value as GameMode)}
+                  >
+                    {GAME_MODES.map((gameMode) => (
+                      <option key={gameMode} value={gameMode}>
+                        {gameMode}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               {HYBRID_EDITOR_SOURCES.map((source) => (
                 <label key={source}>
                   <span className="control-label">
@@ -1618,6 +1675,29 @@ export function SavedMajorBeatsView({
                   />
                 </label>
               ))}
+              <div className="difficulty-selector">
+                <label>
+                  <span className="control-label">Difficulty</span>
+                  <select
+                    value={selectedDifficulty}
+                    onChange={(event) => setSelectedDifficulty(event.currentTarget.value as GameDifficulty)}
+                  >
+                    {GAME_DIFFICULTIES.map((difficulty) => (
+                      <option key={difficulty} value={difficulty}>
+                        {difficulty}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <p className="small">
+                Current saved count: {currentDifficultyBeatCount}
+                {selectedGameMode === "step_arrows" &&
+                selectedDifficulty === "normal" &&
+                selectedEntry.hasLegacyNormalChartOnly
+                  ? " | legacy flat chart currently resolves as normal"
+                  : ""}
+              </p>
               <div className="selection-actions">
                 <button type="button" onClick={() => clearSelections()} disabled={gameBeatSelections.length === 0}>
                   Clear Selections
@@ -1629,7 +1709,7 @@ export function SavedMajorBeatsView({
                 >
                   {saveGameBeatsState.status === "saving"
                     ? "Saving..."
-                    : `Save Selected as Game Beats (${selectedGameBeats.length})`}
+                    : `Save Selected as ${selectedGameMode} ${selectedDifficulty} Game Beats (${selectedGameBeats.length})`}
                 </button>
               </div>
               {saveGameBeatsState.status !== "idle" && (

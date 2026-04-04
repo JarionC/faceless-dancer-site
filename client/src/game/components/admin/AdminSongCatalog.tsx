@@ -9,6 +9,13 @@ interface EntryRow {
   songCoverImageFileName?: string | null;
   gameBeatCount?: number;
   majorBeatCount?: number;
+  availableGameModes?: Array<"step_arrows" | "orb_beat">;
+  availableDifficulties?: Array<"easy" | "normal" | "hard">;
+  difficultyBeatCounts?: Partial<Record<"easy" | "normal" | "hard", number>>;
+  modeDifficultyBeatCounts?: Partial<
+    Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", number>>>
+  >;
+  hasLegacyNormalChartOnly?: boolean;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -57,6 +64,22 @@ export function AdminSongCatalog(): JSX.Element {
     }
   };
 
+  const materializeNormalDifficulty = async (entryId: string): Promise<void> => {
+    setStatus(null);
+    try {
+      await fetchJson(
+        `${runtimeConfig.beatApiBaseUrl}/api/catalog/songs/${encodeURIComponent(entryId)}/materialize-normal-difficulty`,
+        {
+          method: "POST"
+        }
+      );
+      setStatus("Legacy chart materialized as normal difficulty.");
+      await load();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to materialize normal difficulty.");
+    }
+  };
+
   return (
     <section className="card game-admin-card">
       <div className="game-admin-card__header">
@@ -69,7 +92,7 @@ export function AdminSongCatalog(): JSX.Element {
       {status ? <p className="small">{status}</p> : null}
       <div className="game-song-list">
         {entries.map((entry) => (
-          <SongRow key={entry.id} entry={entry} onSave={saveSong} />
+          <SongRow key={entry.id} entry={entry} onSave={saveSong} onMaterializeNormal={materializeNormalDifficulty} />
         ))}
       </div>
     </section>
@@ -78,16 +101,19 @@ export function AdminSongCatalog(): JSX.Element {
 
 function SongRow({
   entry,
-  onSave
+  onSave,
+  onMaterializeNormal
 }: {
   entry: EntryRow;
   onSave: (entryId: string, title: string, isEnabled: boolean) => Promise<void>;
+  onMaterializeNormal: (entryId: string) => Promise<void>;
 }): JSX.Element {
   const [title, setTitle] = useState(entry.songTitle || entry.entryName);
   const [enabled, setEnabled] = useState(Boolean(entry.enabled));
   const [saving, setSaving] = useState(false);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
+  const [materializingNormal, setMaterializingNormal] = useState(false);
   const [coverStatus, setCoverStatus] = useState<string | null>(null);
   const coverUrl = entry.songCoverImageFileName
     ? `${runtimeConfig.beatApiBaseUrl}/api/catalog/songs/${encodeURIComponent(entry.id)}/cover`
@@ -137,6 +163,17 @@ function SongRow({
       <div>
         <strong>{entry.entryName}</strong>
         <p className="small">{entry.gameBeatCount ?? entry.majorBeatCount ?? 0} beats</p>
+        <p className="small">
+          Modes: {entry.availableGameModes?.length ? entry.availableGameModes.join(", ") : "none"}
+        </p>
+        <p className="small">
+          Difficulties: {entry.availableDifficulties?.length ? entry.availableDifficulties.join(", ") : "none"}
+        </p>
+        {entry.difficultyBeatCounts ? (
+          <p className="small">
+            Easy {entry.difficultyBeatCounts.easy ?? 0} | Normal {entry.difficultyBeatCounts.normal ?? 0} | Hard {entry.difficultyBeatCounts.hard ?? 0}
+          </p>
+        ) : null}
       </div>
       <input
         type="text"
@@ -182,6 +219,23 @@ function SongRow({
       >
         {saving ? "Saving..." : "Save"}
       </button>
+      {entry.hasLegacyNormalChartOnly ? (
+        <button
+          type="button"
+          className="secondary"
+          disabled={materializingNormal}
+          onClick={async () => {
+            setMaterializingNormal(true);
+            try {
+              await onMaterializeNormal(entry.id);
+            } finally {
+              setMaterializingNormal(false);
+            }
+          }}
+        >
+          {materializingNormal ? "Applying..." : "Mark Legacy As Normal"}
+        </button>
+      ) : null}
     </div>
   );
 }
