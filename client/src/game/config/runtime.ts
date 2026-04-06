@@ -76,6 +76,7 @@ export interface RuntimeConfig {
   gameGreatWindowSeconds: number;
   gameGoodWindowSeconds: number;
   gamePoorWindowSeconds: number;
+  menuPreviewStartSeconds: number;
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
@@ -489,5 +490,11 @@ export const runtimeConfig: RuntimeConfig = {
     0.2,
     0.03,
     0.6
+  ),
+  menuPreviewStartSeconds: parseClampedNumber(
+    import.meta.env.VITE_MENU_PREVIEW_START_SECONDS,
+    0,
+    0,
+    600
   )
 };

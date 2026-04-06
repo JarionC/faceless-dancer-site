@@ -80,13 +80,40 @@ export function AdminSongCatalog(): JSX.Element {
     }
   };
 
+  const generateMissingPreviews = async (): Promise<void> => {
+    setStatus(null);
+    setLoading(true);
+    try {
+      const result = await fetchJson<{
+        total: number;
+        generated: number;
+        skippedExisting: number;
+        failedCount: number;
+      }>(`${runtimeConfig.beatApiBaseUrl}/api/catalog/previews/generate-missing`, {
+        method: "POST"
+      });
+      setStatus(
+        `Preview generation complete. Generated ${result.generated}/${result.total}, skipped ${result.skippedExisting}, failed ${result.failedCount}.`
+      );
+      await load();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to generate previews.");
+      setLoading(false);
+    }
+  };
+
   return (
     <section className="card game-admin-card">
       <div className="game-admin-card__header">
         <h3>Game Song Catalog</h3>
-        <button type="button" onClick={() => load()} disabled={loading}>
-          {loading ? "Refreshing..." : "Refresh"}
-        </button>
+        <div>
+          <button type="button" className="secondary" onClick={() => generateMissingPreviews()} disabled={loading}>
+            {loading ? "Working..." : "Generate Missing Previews"}
+          </button>
+          <button type="button" onClick={() => load()} disabled={loading}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
       </div>
       <p className="small">Enable songs for players and set rolodex titles.</p>
       {status ? <p className="small">{status}</p> : null}

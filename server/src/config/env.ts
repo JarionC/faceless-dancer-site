@@ -54,6 +54,8 @@ const envSchema = z.object({
   BEAT_API_MAX_BODY_BYTES: z.coerce.number().int().positive().default(50 * 1024 * 1024),
   BEAT_SEPARATION_WORKER_URL: z.string().url().default("http://separation-worker:8792"),
   BEAT_SEPARATION_LOG_TAIL_LINES: z.coerce.number().int().positive().default(300),
+  BEAT_PREVIEW_OFFSET_SECONDS: z.coerce.number().nonnegative().default(30),
+  BEAT_PREVIEW_DURATION_SECONDS: z.coerce.number().positive().default(15),
 });
 
 const parsed = envSchema.safeParse(process.env);

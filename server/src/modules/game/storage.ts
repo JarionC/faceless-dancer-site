@@ -83,18 +83,20 @@ function getStoragePaths(storageDir: string) {
   return {
     jsonDir: path.join(storageDir, "json"),
     audioDir: path.join(storageDir, "audio"),
+    previewsDir: path.join(storageDir, "previews"),
     separatedDir: path.join(storageDir, "separated"),
     coversDir: path.join(storageDir, "covers")
   };
 }
 
 async function ensureStorageDirs(storageDir: string) {
-  const { jsonDir, audioDir, separatedDir, coversDir } = getStoragePaths(storageDir);
+  const { jsonDir, audioDir, previewsDir, separatedDir, coversDir } = getStoragePaths(storageDir);
   await fsp.mkdir(jsonDir, { recursive: true });
   await fsp.mkdir(audioDir, { recursive: true });
+  await fsp.mkdir(previewsDir, { recursive: true });
   await fsp.mkdir(separatedDir, { recursive: true });
   await fsp.mkdir(coversDir, { recursive: true });
-  return { jsonDir, audioDir, separatedDir, coversDir };
+  return { jsonDir, audioDir, previewsDir, separatedDir, coversDir };
 }
 
 async function createUniqueId(jsonDir: string, baseId: string) {
@@ -243,6 +245,35 @@ export function createAudioReadStream(
   return {
     stream: fs.createReadStream(audioPath),
     mimeType: audio?.mimeType || "application/octet-stream"
+  };
+}
+
+export function hasPreviewForEntry(storageDir: string, id: string): boolean {
+  const safeId = sanitizeId(id);
+  if (!safeId) {
+    return false;
+  }
+  const { previewsDir } = getStoragePaths(storageDir);
+  const previewPath = path.join(previewsDir, `${safeId}.wav`);
+  return fs.existsSync(previewPath);
+}
+
+export function createPreviewReadStream(
+  storageDir: string,
+  id: string
+): { stream: fs.ReadStream; mimeType: string } | null {
+  const safeId = sanitizeId(id);
+  if (!safeId) {
+    return null;
+  }
+  const { previewsDir } = getStoragePaths(storageDir);
+  const previewPath = path.join(previewsDir, `${safeId}.wav`);
+  if (!fs.existsSync(previewPath)) {
+    return null;
+  }
+  return {
+    stream: fs.createReadStream(previewPath),
+    mimeType: "audio/wav"
   };
 }
 

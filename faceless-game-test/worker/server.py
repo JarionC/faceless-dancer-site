@@ -532,6 +532,72 @@ def _convert_audio_to_wav(log_path: Path, source_path: Path, target_wav_path: Pa
     return _run_logged_command(log_path, command, "PREP", timeout_seconds)
 
 
+def _generate_preview(entry_id: str, storage_dir_raw: str, offset_seconds: float, duration_seconds: float):
+    storage_dir = Path(storage_dir_raw)
+    safe_entry_id = _sanitize_id(entry_id)
+    if not safe_entry_id:
+        raise RuntimeError("Invalid entry id.")
+
+    log_path = _job_log_path(storage_dir, safe_entry_id)
+    if not log_path:
+        raise RuntimeError("Invalid entry id.")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    entry, _json_path = _load_saved_entry(storage_dir, safe_entry_id)
+    if not entry:
+        raise RuntimeError("Saved entry not found.")
+
+    audio = entry.get("audio") if isinstance(entry, dict) else None
+    audio_file = str((audio or {}).get("storedFileName") or "").strip() if isinstance(audio, dict) else ""
+    if not audio_file:
+        raise RuntimeError("Saved entry has no audio reference.")
+
+    input_path = storage_dir / "audio" / audio_file
+    if not input_path.exists():
+        raise RuntimeError("Saved audio file not found.")
+
+    previews_dir = storage_dir / "previews"
+    previews_dir.mkdir(parents=True, exist_ok=True)
+    preview_file_name = f"{safe_entry_id}.wav"
+    output_path = previews_dir / preview_file_name
+
+    safe_offset = max(0.0, float(offset_seconds))
+    safe_duration = max(1.0, float(duration_seconds))
+    command = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-ss",
+        str(safe_offset),
+        "-t",
+        str(safe_duration),
+        "-i",
+        str(input_path),
+        "-ac",
+        "2",
+        "-ar",
+        "44100",
+        str(output_path),
+    ]
+    code, tail = _run_logged_command(log_path, command, "PREVIEW", _parse_positive_int(os.environ.get("BEAT_ANALYSIS_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)), DEFAULT_TIMEOUT_SECONDS))
+    if code == 124:
+        raise RuntimeError("Preview generation timed out.")
+    if code != 0 or not output_path.exists():
+        detail = tail[-1] if tail else "ffmpeg preview generation failed."
+        raise RuntimeError(detail)
+
+    _append_log_line(log_path, "INFO", f"Preview generated: {output_path}")
+    return {
+        "ok": True,
+        "entryId": safe_entry_id,
+        "previewFileName": preview_file_name,
+        "offsetSeconds": safe_offset,
+        "durationSeconds": safe_duration,
+    }
+
+
 def _run_separation(entry_id: str, storage_dir_raw: str):
     storage_dir = Path(storage_dir_raw)
     log_path = _job_log_path(storage_dir, entry_id)
@@ -999,6 +1065,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/preview":
+            try:
+                body = _read_json(self)
+                entry_id = str(body.get("entryId", "")).strip()
+                storage_dir = str(body.get("storageDir", "")).strip()
+                offset_seconds = _parse_number(body.get("offsetSeconds"), 30.0)
+                duration_seconds = _parse_number(body.get("durationSeconds"), 15.0)
+                if not entry_id or not storage_dir:
+                    _json_response(self, 400, {"error": "entryId and storageDir are required."})
+                    return
+                payload = _generate_preview(entry_id, storage_dir, offset_seconds, duration_seconds)
+                _json_response(self, 200, payload)
+                return
+            except Exception as error:
+                _json_response(self, 500, {"error": str(error)})
+                return
         if parsed.path == "/separate":
             try:
                 body = _read_json(self)

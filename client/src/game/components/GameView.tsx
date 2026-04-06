@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { CSSProperties } from "preact/compat";
 import { runtimeConfig } from "../config/runtime";
+import gameTitleImage from "../../assets/game/game-title.png";
 import { createPrecisePlaybackEngine, type PrecisePlaybackEngine } from "../lib/audio/precisePlaybackEngine";
 import {
   buildFallbackEntryFromBeats,
@@ -123,6 +124,11 @@ function formatGameModeLabel(gameMode: GameMode): string {
 const HOLD_MIN_SECONDS = 0.14;
 const HOLD_BONUS_POINTS = 120;
 const HOLD_BONUS_EASY_RELEASE_SECONDS = 0.5;
+const MENU_PREVIEW_SAMPLE_SECONDS = 15;
+const MENU_PREVIEW_FADE_SECONDS = 1.2;
+const MENU_PREVIEW_MAX_VOLUME = 0.5;
+const MENU_PREVIEW_SWITCH_FADE_OUT_MS = 90;
+const MENU_PREVIEW_METADATA_WAIT_MS = 50;
 
 function createInitialScore(): ScoreState {
   return { combo: 0, maxCombo: 0, perfect: 0, great: 0, good: 0, poor: 0, miss: 0 };
@@ -169,6 +175,11 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
   const countdownRef = useRef<number | null>(null);
   const rolodexRef = useRef<HTMLDivElement | null>(null);
   const rolodexRafRef = useRef<number | null>(null);
+  const menuPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const menuPreviewLoopRef = useRef<number | null>(null);
+  const menuPreviewTokenRef = useRef(0);
+  const menuPreviewEntryIdRef = useRef("");
+  const selectedIdRef = useRef("");
   const judgementTimeoutRef = useRef<number | null>(null);
   const notesRef = useRef<GameNoteState[]>([]);
   const heldLanesRef = useRef<Record<GameLane, boolean>>(createLaneState());
@@ -193,6 +204,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
 
   const [loadingSongs, setLoadingSongs] = useState(false);
   const [loadingEntry, setLoadingEntry] = useState(false);
+  const [menuAudioEnabled, setMenuAudioEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [score, setScore] = useState<ScoreState>(createInitialScore);
@@ -364,28 +376,361 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     }
   };
 
+  const clearMenuPreviewLoop = (): void => {
+    if (menuPreviewLoopRef.current !== null) {
+      window.clearInterval(menuPreviewLoopRef.current);
+      menuPreviewLoopRef.current = null;
+    }
+  };
+
+  const previewLog = (_action: string, _details?: Record<string, unknown>): void => {};
+
+  const fadeAudioVolume = async (audio: HTMLAudioElement, target: number, durationMs: number): Promise<void> =>
+    new Promise((resolve) => {
+      const startVolume = Number.isFinite(audio.volume) ? audio.volume : 0;
+      const clampedTarget = Math.max(0, Math.min(1, target));
+      const startAt = performance.now();
+      const step = (now: number) => {
+        const progress = Math.min(1, (now - startAt) / Math.max(1, durationMs));
+        audio.volume = startVolume + (clampedTarget - startVolume) * progress;
+        if (progress < 1) {
+          window.requestAnimationFrame(step);
+          return;
+        }
+        resolve();
+      };
+      window.requestAnimationFrame(step);
+    });
+
+  const stopMenuPreview = async (): Promise<void> => {
+    previewLog("stop-begin");
+    clearMenuPreviewLoop();
+    const audio = menuPreviewAudioRef.current;
+    if (!audio) return;
+    const token = ++menuPreviewTokenRef.current;
+    previewLog("stop-token", { token, paused: audio.paused, currentTime: audio.currentTime, volume: audio.volume });
+    if (!audio.paused) {
+      await fadeAudioVolume(audio, 0, 180).catch(() => undefined);
+      previewLog("stop-fade-complete", { token, currentTime: audio.currentTime, volume: audio.volume });
+    }
+    if (token !== menuPreviewTokenRef.current) return;
+    audio.pause();
+    audio.currentTime = 0;
+    menuPreviewEntryIdRef.current = "";
+    previewLog("stop-complete", { token });
+  };
+
+  const startMenuPreview = async (entryId: string): Promise<void> => {
+    previewLog("start-request", { entryId });
+    if (!entryId) return;
+    if (!menuAudioEnabled) {
+      previewLog("start-skipped-audio-disabled", { entryId });
+      return;
+    }
+    const token = ++menuPreviewTokenRef.current;
+    previewLog("start-token", { token, entryId });
+    clearMenuPreviewLoop();
+    let audio = menuPreviewAudioRef.current;
+    if (!audio) {
+      audio = new Audio();
+      audio.preload = "metadata";
+      audio.playsInline = true;
+      audio.loop = true;
+      const events: Array<keyof HTMLMediaElementEventMap> = [
+        "loadstart",
+        "loadedmetadata",
+        "loadeddata",
+        "canplay",
+        "canplaythrough",
+        "play",
+        "playing",
+        "pause",
+        "waiting",
+        "stalled",
+        "suspend",
+        "seeking",
+        "seeked",
+        "timeupdate",
+        "progress",
+        "durationchange",
+        "ended",
+        "emptied",
+        "abort",
+        "error"
+      ];
+      for (const eventName of events) {
+        audio.addEventListener(eventName, () => {
+          previewLog(`audio-event:${eventName}`, {
+            token: menuPreviewTokenRef.current,
+            src: audio?.src,
+            readyState: audio?.readyState,
+            networkState: audio?.networkState,
+            currentTime: audio?.currentTime,
+            duration: audio?.duration,
+            paused: audio?.paused,
+            volume: audio?.volume,
+            muted: audio?.muted,
+            errorCode: audio?.error?.code ?? null
+          });
+        });
+      }
+      menuPreviewAudioRef.current = audio;
+      previewLog("audio-created");
+    }
+
+    if (menuPreviewEntryIdRef.current === entryId && !audio.paused) {
+      previewLog("start-skip-already-playing", { token, entryId, currentTime: audio.currentTime });
+      return;
+    }
+
+    if (!audio.paused) {
+      previewLog("start-fade-out-current", { token, currentEntry: menuPreviewEntryIdRef.current, currentTime: audio.currentTime });
+      await fadeAudioVolume(audio, 0, MENU_PREVIEW_SWITCH_FADE_OUT_MS).catch(() => undefined);
+      if (token !== menuPreviewTokenRef.current) return;
+      audio.pause();
+      previewLog("start-fade-out-complete", { token, currentTime: audio.currentTime });
+    }
+
+    const previewSrc = `${apiBaseUrl}/api/public/beats/${encodeURIComponent(entryId)}/preview`;
+    const fallbackSrc = `${apiBaseUrl}/api/public/beats/${encodeURIComponent(entryId)}/audio`;
+    const nextSrc = previewSrc;
+    const isNewSource = menuPreviewEntryIdRef.current !== entryId || audio.src !== nextSrc;
+    previewLog("start-source-check", {
+      token,
+      entryId,
+      nextSrc,
+      currentSrc: audio.src,
+      currentEntry: menuPreviewEntryIdRef.current,
+      isNewSource
+    });
+    if (isNewSource) {
+      audio.src = nextSrc;
+      audio.currentTime = 0;
+      audio.volume = 0;
+      audio.loop = true;
+      menuPreviewEntryIdRef.current = entryId;
+      audio.load();
+      previewLog("start-source-loaded", { token, entryId, src: nextSrc });
+    }
+    if (token !== menuPreviewTokenRef.current || mode !== "menu" || selectedIdRef.current !== entryId) {
+      previewLog("start-abort-after-source", {
+        token,
+        activeToken: menuPreviewTokenRef.current,
+        selectedRef: selectedIdRef.current,
+        entryId,
+        mode
+      });
+      return;
+    }
+
+    audio.muted = true;
+    previewLog("start-play-attempt", {
+      token,
+      entryId,
+      currentTime: audio.currentTime,
+      readyState: audio.readyState,
+      networkState: audio.networkState
+    });
+    try {
+      await audio.play();
+    } catch {
+      if (audio.src === previewSrc) {
+        previewLog("start-preview-fallback-audio", { token, entryId, previewSrc, fallbackSrc });
+        audio.src = fallbackSrc;
+        audio.currentTime = 0;
+        audio.volume = 0;
+        audio.load();
+        try {
+          await audio.play();
+        } catch {
+          previewLog("start-fallback-play-failed", {
+            token,
+            entryId,
+            readyState: audio.readyState,
+            networkState: audio.networkState,
+            errorCode: audio.error?.code ?? null
+          });
+          return;
+        }
+      } else {
+      previewLog("start-play-failed", {
+        token,
+        entryId,
+        readyState: audio.readyState,
+        networkState: audio.networkState,
+        errorCode: audio.error?.code ?? null
+      });
+      return;
+      }
+    }
+    if (token !== menuPreviewTokenRef.current || mode !== "menu" || selectedIdRef.current !== entryId) {
+      previewLog("start-abort-after-play", {
+        token,
+        activeToken: menuPreviewTokenRef.current,
+        selectedRef: selectedIdRef.current,
+        entryId,
+        mode
+      });
+      return;
+    }
+    audio.muted = false;
+    previewLog("start-play-success", {
+      token,
+      entryId,
+      currentTime: audio.currentTime,
+      readyState: audio.readyState,
+      networkState: audio.networkState
+    });
+
+    if (!Number.isFinite(audio.duration) || audio.duration <= 0) {
+      previewLog("start-wait-metadata", { token, entryId, duration: audio.duration });
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          const complete = () => {
+            audio?.removeEventListener("loadedmetadata", complete);
+            resolve();
+          };
+          audio.addEventListener("loadedmetadata", complete, { once: true });
+        }),
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, MENU_PREVIEW_METADATA_WAIT_MS);
+        })
+      ]);
+      previewLog("start-wait-metadata-complete", { token, entryId, duration: audio.duration });
+    }
+    if (token !== menuPreviewTokenRef.current || mode !== "menu" || selectedIdRef.current !== entryId) {
+      previewLog("start-abort-after-metadata", {
+        token,
+        activeToken: menuPreviewTokenRef.current,
+        selectedRef: selectedIdRef.current,
+        entryId,
+        mode
+      });
+      return;
+    }
+
+    const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+    const segmentLength = Math.max(4, Math.min(MENU_PREVIEW_SAMPLE_SECONDS, duration > 0 ? duration : MENU_PREVIEW_SAMPLE_SECONDS));
+    const segmentStart =
+      duration > segmentLength
+        ? Math.min(runtimeConfig.menuPreviewStartSeconds, Math.max(0, duration - segmentLength))
+        : 0;
+    const segmentEnd = duration > 0 ? Math.max(segmentStart + 0.5, Math.min(duration, segmentStart + segmentLength)) : segmentStart + segmentLength;
+    previewLog("start-segment-computed", { token, duration, segmentLength, segmentStart, segmentEnd });
+    try {
+      if (segmentStart > 0 && audio.readyState >= 2) {
+        audio.currentTime = segmentStart;
+        previewLog("start-seek-applied", { token, segmentStart, currentTime: audio.currentTime });
+      } else if (segmentStart <= 0) {
+        audio.currentTime = 0;
+        previewLog("start-seek-zero", { token, currentTime: audio.currentTime });
+      }
+    } catch {
+      previewLog("start-seek-failed", { token, readyState: audio.readyState, currentTime: audio.currentTime });
+    }
+
+    menuPreviewLoopRef.current = window.setInterval(() => {
+      const currentAudio = menuPreviewAudioRef.current;
+      if (!currentAudio) return;
+      if (menuPreviewTokenRef.current !== token || mode !== "menu" || selectedIdRef.current !== entryId) {
+        previewLog("loop-skip-token-or-selection", {
+          token,
+          activeToken: menuPreviewTokenRef.current,
+          selectedRef: selectedIdRef.current,
+          entryId,
+          mode
+        });
+        return;
+      }
+      let current = currentAudio.currentTime;
+      const segmentDuration = Math.max(0.001, segmentEnd - segmentStart);
+      const fadeSeconds = Math.min(MENU_PREVIEW_FADE_SECONDS, segmentDuration * 0.35);
+      if (segmentStart > 0 && current < segmentStart - 0.1) {
+        const previous = current;
+        try {
+          currentAudio.currentTime = segmentStart;
+          current = currentAudio.currentTime;
+          previewLog("loop-correct-prestart", { token, from: previous, to: segmentStart });
+        } catch {
+          previewLog("loop-correct-prestart-failed", { token, from: previous, to: segmentStart });
+        }
+      }
+      const segmentPosition = Math.max(0, Math.min(segmentDuration, current - segmentStart));
+      const fadeInEnd = fadeSeconds;
+      const fadeOutStart = segmentDuration - fadeSeconds;
+      let volume = MENU_PREVIEW_MAX_VOLUME;
+      if (current >= segmentStart) {
+        if (segmentPosition <= fadeInEnd) {
+          volume = MENU_PREVIEW_MAX_VOLUME * Math.max(0, segmentPosition / Math.max(0.001, fadeSeconds));
+        } else if (segmentPosition >= fadeOutStart) {
+          volume =
+            MENU_PREVIEW_MAX_VOLUME *
+            Math.max(0, (segmentDuration - segmentPosition) / Math.max(0.001, fadeSeconds));
+        }
+      }
+      currentAudio.volume = Math.max(0, Math.min(MENU_PREVIEW_MAX_VOLUME, volume));
+      previewLog("loop-tick", {
+        token,
+        current,
+        segmentPosition,
+        segmentStart,
+        segmentEnd,
+        fadeInEnd,
+        fadeOutStart,
+        volume: currentAudio.volume,
+        paused: currentAudio.paused,
+        readyState: currentAudio.readyState,
+        networkState: currentAudio.networkState
+      });
+    }, 60);
+    previewLog("loop-started", { token, intervalMs: 60 });
+  };
+
   const updateSelectedSongFromRolodex = (): void => {
     const container = rolodexRef.current;
     if (!container) return;
     const cards = Array.from(container.querySelectorAll<HTMLButtonElement>(".game-song-card[data-song-id]"));
     if (cards.length === 0) return;
-    const centerX = container.scrollLeft + container.clientWidth * 0.5;
+    const centerY = container.scrollTop + container.clientHeight * 0.5;
     let bestId = selectedId;
     let bestDistance = Number.POSITIVE_INFINITY;
     for (const card of cards) {
-      const cardCenter = card.offsetLeft + card.offsetWidth * 0.5;
-      const distance = Math.abs(cardCenter - centerX);
+      const cardCenter = card.offsetTop + card.offsetHeight * 0.5;
+      const distance = Math.abs(cardCenter - centerY);
+      const normalized = Math.max(-1.25, Math.min(1.25, (cardCenter - centerY) / (container.clientHeight * 0.5)));
+      const distanceNorm = Math.min(1, Math.abs(normalized));
+      const rotateX = normalized * -48;
+      const rotateY = normalized * -10;
+      const depth = 72 - distanceNorm * 112;
+      const lift = normalized * 24;
+      const scale = 1 - distanceNorm * 0.18;
+      const opacity = 1 - distanceNorm * 0.58;
+      const saturation = 1.18 - distanceNorm * 0.34;
+      const brightness = 1.08 - distanceNorm * 0.26;
+      card.style.setProperty("--card-rotate-x", `${rotateX.toFixed(2)}deg`);
+      card.style.setProperty("--card-rotate-y", `${rotateY.toFixed(2)}deg`);
+      card.style.setProperty("--card-z", `${depth.toFixed(2)}px`);
+      card.style.setProperty("--card-shift-y", `${lift.toFixed(2)}px`);
+      card.style.setProperty("--card-scale", scale.toFixed(3));
+      card.style.setProperty("--card-opacity", opacity.toFixed(3));
+      card.style.setProperty("--card-saturation", saturation.toFixed(3));
+      card.style.setProperty("--card-brightness", brightness.toFixed(3));
       if (distance < bestDistance) {
         bestDistance = distance;
         bestId = card.dataset.songId || bestId;
       }
     }
     if (bestId && bestId !== selectedId) {
+      previewLog("selection-from-scroll", { previousSelectedId: selectedId, nextSelectedId: bestId });
       setSelectedId(bestId);
+      if (mode === "menu") {
+        void startMenuPreview(bestId);
+      }
     }
   };
 
   const handleRolodexScroll = (): void => {
+    updateSelectedSongFromRolodex();
     if (rolodexRafRef.current !== null) {
       window.cancelAnimationFrame(rolodexRafRef.current);
     }
@@ -393,6 +738,21 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
       rolodexRafRef.current = null;
       updateSelectedSongFromRolodex();
     });
+  };
+
+  const focusSongCard = (songId: string, smooth = false): void => {
+    setSelectedId(songId);
+    const container = rolodexRef.current;
+    if (!container) return;
+    const cards = Array.from(container.querySelectorAll<HTMLButtonElement>(".game-song-card[data-song-id]"));
+    const card = cards.find((item) => item.dataset.songId === songId);
+    if (!card) return;
+    const targetScrollTop = card.offsetTop - (container.clientHeight - card.offsetHeight) * 0.5;
+    container.scrollTo({
+      top: Math.max(0, targetScrollTop),
+      behavior: smooth ? "smooth" : "auto"
+    });
+    handleRolodexScroll();
   };
 
   const loadLeaderboards = async (
@@ -681,17 +1041,65 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
   }, [mode, onModeChange]);
 
   useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
     return () => {
       if (rolodexRafRef.current !== null) {
         window.cancelAnimationFrame(rolodexRafRef.current);
       }
+      clearMenuPreviewLoop();
+      const audio = menuPreviewAudioRef.current;
+      if (audio) {
+        audio.pause();
+        audio.src = "";
+      }
+      menuPreviewEntryIdRef.current = "";
     };
   }, []);
+
+  useEffect(() => {
+    if (mode !== "menu" || songs.length === 0) return;
+    const rafId = window.requestAnimationFrame(() => {
+      const focusId = selectedId && songs.some((song) => song.beatEntryId === selectedId)
+        ? selectedId
+        : songs[0].beatEntryId;
+      focusSongCard(focusId, false);
+    });
+    const onResize = () => handleRolodexScroll();
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [mode, songs.length]);
 
   useEffect(() => {
     if (!selectedId || mode !== "scores") return;
     loadLeaderboards(selectedId, selectedGameMode, selectedDifficulty).catch(() => undefined);
   }, [mode, selectedDifficulty, selectedGameMode, selectedId]);
+
+  useEffect(() => {
+    if (mode !== "menu") {
+      previewLog("effect-mode-not-menu-stop");
+      void stopMenuPreview();
+      return;
+    }
+    const entryId = selectedId || songs[0]?.beatEntryId || "";
+    previewLog("effect-menu-selection", { entryId, selectedId, songsCount: songs.length });
+    if (!entryId) return;
+    if (!selectedId) {
+      previewLog("effect-auto-select-first-song", { entryId });
+      setSelectedId(entryId);
+    }
+    if (menuAudioEnabled) {
+      previewLog("effect-start-preview", { entryId });
+      void startMenuPreview(entryId);
+    } else {
+      previewLog("effect-preview-skipped-audio-disabled", { entryId });
+    }
+  }, [mode, selectedId, songs, menuAudioEnabled]);
 
   useEffect(() => {
     rebuildChart();
@@ -814,49 +1222,57 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     return notesRef.current.filter((note) => note.timeSeconds <= endWindow && Math.max(note.timeSeconds, note.endSeconds) >= startWindow);
   }, [chartRevision, currentTimeSeconds, windows.poor]);
 
-  const selectedSongIndex = useMemo(
-    () => songs.findIndex((song) => song.beatEntryId === selectedId),
-    [songs, selectedId]
-  );
   const activeLanes = selectedGameMode === "orb_beat" ? orbBeatLaneOrder : stepArrowLaneOrder;
+  const enableMenuAudio = (): void => {
+    previewLog("audio-enable-clicked", { alreadyEnabled: menuAudioEnabled });
+    if (menuAudioEnabled) return;
+    setMenuAudioEnabled(true);
+    const entryId = selectedId || songs[0]?.beatEntryId || "";
+    previewLog("audio-enable-after-set", { entryId });
+    if (entryId) {
+      void startMenuPreview(entryId);
+    }
+  };
 
   if (mode === "menu") {
     return (
-      <section className="game-view-shell">
+      <section className="game-view-shell game-view-shell--menu">
         <header className="game-ui-header">
           <a className="game-ui-link" href={homeHref}>Back Home</a>
-          <h2>Faceless Dance Stage</h2>
+          <h2 className="game-menu-title">
+            <img src={gameTitleImage} alt="Faceless Dance Stage" draggable={false} />
+          </h2>
           <button type="button" onClick={() => loadSongs()} disabled={loadingSongs}>{loadingSongs ? "Refreshing..." : "Refresh Songs"}</button>
         </header>
 
-        <div className="game-menu-screen">
-          <h3>Select Track</h3>
-          <div className="game-song-rolodex" ref={rolodexRef} onScroll={handleRolodexScroll}>
-            {songs.map((song, index) => {
-              const offset = selectedSongIndex < 0 ? 0 : Math.max(-3, Math.min(3, index - selectedSongIndex));
-              const distance = Math.abs(offset);
-              const cardScale = Math.max(0.78, 1 - distance * 0.06);
-              const cardOpacity = Math.max(0.55, 1 - distance * 0.15);
-              const cardTilt = offset * -8;
-              const cardDepth = Math.max(2, 16 - distance * 5);
-              return (
+        <div className="game-menu-screen game-menu-screen--arc">
+          <div className="game-menu-heading">
+            <h3>Select Your Beat</h3>
+            <button
+              type="button"
+              className={`game-menu-audio-toggle${menuAudioEnabled ? " enabled" : " secondary"}`}
+              onClick={enableMenuAudio}
+            >
+              {menuAudioEnabled ? "Audio Enabled" : "Enable Audio"}
+            </button>
+          </div>
+
+          <div className="game-menu-arc-layout">
+            <div className="game-menu-arc-stage">
+              <div className="game-song-rolodex" ref={rolodexRef} onScroll={handleRolodexScroll}>
+                {songs.map((song) => (
               <button
                 key={song.beatEntryId}
                 type="button"
                 data-song-id={song.beatEntryId}
                 className={`game-song-card${selectedId === song.beatEntryId ? " selected" : ""}`}
-                style={{
-                  "--card-tilt": `${cardTilt}deg`,
-                  "--card-scale": String(cardScale),
-                  "--card-opacity": String(cardOpacity),
-                  "--card-z": `${cardDepth}px`
-                } as CSSProperties}
-                onClick={() => setSelectedId(song.beatEntryId)}
+                onClick={() => focusSongCard(song.beatEntryId, true)}
               >
                 {song.coverImageUrl ? (
                   <img className="game-song-card-bg" src={song.coverImageUrl} alt="" draggable={false} />
                 ) : null}
                 <div className="game-song-card-overlay" />
+                <div className="game-song-card-glare" />
                 <strong>{song.title}</strong>
                 <span>
                   {song.availableDifficulties?.length > 0
@@ -864,73 +1280,81 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
                     : `${song.gameBeatCount || song.majorBeatCount} notes`}
                 </span>
               </button>
-              );
-            })}
+                ))}
+              </div>
+            </div>
+
+            <aside className="game-menu-control-panel">
+              {selectedSongSummary ? (
+                <>
+                  <div className="game-menu-control-group">
+                    <p className="game-menu-group-label">Game Mode</p>
+                    <div className="game-menu-actions game-menu-actions--group">
+                      {GAME_MODES.map((gameMode) => {
+                        const available = (selectedSongSummary.availableGameModes ?? []).includes(gameMode);
+                        return (
+                          <button
+                            key={gameMode}
+                            type="button"
+                            className={selectedGameMode === gameMode ? "" : "secondary"}
+                            disabled={!available}
+                            onClick={() => setSelectedGameMode(gameMode)}
+                          >
+                            {formatGameModeLabel(gameMode)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="game-menu-control-group">
+                    <p className="game-menu-group-label">Difficulty</p>
+                    <div className="game-menu-actions game-menu-actions--group">
+                      {GAME_DIFFICULTIES.map((difficulty) => {
+                        const available =
+                          (selectedSongSummary.modeDifficultyBeatCounts?.[selectedGameMode]?.[difficulty] ?? 0) > 0;
+                        return (
+                          <button
+                            key={difficulty}
+                            type="button"
+                            className={selectedDifficulty === difficulty ? "" : "secondary"}
+                            disabled={!available}
+                            onClick={() => setSelectedDifficulty(difficulty)}
+                          >
+                            {difficulty} ({selectedSongSummary.modeDifficultyBeatCounts?.[selectedGameMode]?.[difficulty] ?? 0})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <p className="small game-menu-meta">
+                    {formatGameModeLabel(selectedGameMode)} | {selectedDifficulty} | notes{" "}
+                    {selectedSongSummary.modeDifficultyBeatCounts?.[selectedGameMode]?.[selectedDifficulty] ?? 0}
+                  </p>
+                </>
+              ) : null}
+              <div className="game-menu-actions game-menu-actions--cta">
+                <button
+                  type="button"
+                  disabled={
+                    !selectedId ||
+                    loadingEntry ||
+                    ((selectedSongSummary?.modeDifficultyBeatCounts?.[selectedGameMode]?.[selectedDifficulty] ?? 0) <= 0 &&
+                      !(
+                        selectedGameMode === "step_arrows" &&
+                        selectedDifficulty === "normal" &&
+                        (selectedSongSummary?.majorBeatCount ?? 0) > 0
+                      ))
+                  }
+                  onClick={() => startGame()}
+                >
+                  {loadingEntry ? "Loading Song..." : "Start Game"}
+                </button>
+                <button type="button" className="secondary" disabled={!selectedId} onClick={() => setMode("scores")}>View High Scores</button>
+              </div>
+            </aside>
           </div>
           {error ? <p className="error">{error}</p> : null}
           {songs.length === 0 && !loadingSongs ? <p>No enabled songs available yet.</p> : null}
-          {selectedSongSummary ? (
-            <div className="game-menu-actions">
-              {GAME_MODES.map((gameMode) => {
-                const available = (selectedSongSummary.availableGameModes ?? []).includes(gameMode);
-                return (
-                  <button
-                    key={gameMode}
-                    type="button"
-                    className={selectedGameMode === gameMode ? "" : "secondary"}
-                    disabled={!available}
-                    onClick={() => setSelectedGameMode(gameMode)}
-                  >
-                    {formatGameModeLabel(gameMode)}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-          {selectedSongSummary ? (
-            <div className="game-menu-actions">
-              {GAME_DIFFICULTIES.map((difficulty) => {
-                const available =
-                  (selectedSongSummary.modeDifficultyBeatCounts?.[selectedGameMode]?.[difficulty] ?? 0) > 0;
-                return (
-                  <button
-                    key={difficulty}
-                    type="button"
-                    className={selectedDifficulty === difficulty ? "" : "secondary"}
-                    disabled={!available}
-                    onClick={() => setSelectedDifficulty(difficulty)}
-                  >
-                    {difficulty} ({selectedSongSummary.modeDifficultyBeatCounts?.[selectedGameMode]?.[difficulty] ?? 0})
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-          {selectedSongSummary ? (
-            <p className="small">
-              Selected mode: {formatGameModeLabel(selectedGameMode)} | difficulty: {selectedDifficulty} | notes{" "}
-              {selectedSongSummary.modeDifficultyBeatCounts?.[selectedGameMode]?.[selectedDifficulty] ?? 0}
-            </p>
-          ) : null}
-          <div className="game-menu-actions">
-            <button
-              type="button"
-              disabled={
-                !selectedId ||
-                loadingEntry ||
-                ((selectedSongSummary?.modeDifficultyBeatCounts?.[selectedGameMode]?.[selectedDifficulty] ?? 0) <= 0 &&
-                  !(
-                    selectedGameMode === "step_arrows" &&
-                    selectedDifficulty === "normal" &&
-                    (selectedSongSummary?.majorBeatCount ?? 0) > 0
-                  ))
-              }
-              onClick={() => startGame()}
-            >
-              {loadingEntry ? "Loading Song..." : "Start Game"}
-            </button>
-            <button type="button" className="secondary" disabled={!selectedId} onClick={() => setMode("scores")}>View High Scores</button>
-          </div>
         </div>
       </section>
     );

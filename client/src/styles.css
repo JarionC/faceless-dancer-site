@@ -12,6 +12,22 @@
   --shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
 }
 
+@font-face {
+  font-family: "GamePlayed";
+  src: url("./assets/fonts/GamePlayed-vYL7.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "GameScore";
+  src: url("./assets/fonts/GameScoreDemo-2vq8d.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -575,6 +591,33 @@ label {
   height: 100vh;
   min-height: 100vh;
   overflow: hidden;
+  font-family: "GamePlayed", "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+.game-page-root button,
+.game-page-root a,
+.game-page-root p,
+.game-page-root span,
+.game-page-root strong,
+.game-page-root h2,
+.game-page-root h3 {
+  font-family: inherit;
+}
+
+.game-menu-meta,
+.game-song-card span,
+.game-score-panel strong,
+.game-score-panel ol,
+.ddr-score-label,
+.ddr-score-stack strong,
+.ddr-life span,
+.ddr-combo-popup,
+.ddr-judge-popup,
+.game-play-subtitle,
+.game-top-status,
+.result-line strong {
+  font-family: "GameScore", "GamePlayed", "Space Grotesk", sans-serif;
+  letter-spacing: 0.03em;
 }
 
 .game-wallet-dock {
@@ -623,6 +666,14 @@ label {
   gap: 12px;
 }
 
+.game-view-shell--menu {
+  background: #000;
+  max-width: none;
+  padding-left: 0;
+  padding-right: 0;
+  padding-bottom: 0;
+}
+
 .game-view-shell.game-mode-active {
   height: 100vh;
   max-height: 100vh;
@@ -643,6 +694,19 @@ label {
   margin: 0;
   text-align: center;
   letter-spacing: -0.02em;
+}
+
+.game-menu-title {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.game-menu-title img {
+  width: min(560px, 100%);
+  max-height: 78px;
+  object-fit: contain;
+  display: block;
 }
 
 .game-ui-link {
@@ -669,44 +733,161 @@ label {
     radial-gradient(circle at 15% 16%, rgba(105, 198, 255, 0.18), transparent 34%),
     linear-gradient(170deg, rgba(9, 16, 26, 0.98), rgba(7, 12, 20, 0.98));
   padding: 20px;
+}
+
+.game-menu-screen {
+  overflow: hidden;
+}
+
+.game-view-shell--menu .game-ui-header .game-ui-link,
+.game-view-shell--menu .game-ui-header > button {
+  border: 0;
+  background: rgba(255, 255, 255, 0.06);
+  color: #eef6ff;
+  box-shadow: none;
+}
+
+.game-view-shell--menu .game-ui-header {
+  padding: 0 16px;
+}
+
+.game-view-shell--menu .game-menu-screen {
+  background: #000;
+  border: 0;
+  border-radius: 0;
+  padding: 10px 16px 8px;
+}
+
+.game-scores-screen {
   overflow: auto;
 }
 
-.game-song-rolodex {
+.game-menu-screen--arc {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(240px, 320px);
-  gap: 14px;
-  overflow-x: auto;
-  overflow-y: visible;
-  padding: 10px 14px 16px;
-  padding-bottom: 8px;
-  margin-bottom: 14px;
-  perspective: 1100px;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: thin;
+  grid-template-rows: auto 1fr;
+  gap: 16px;
+}
+
+.game-menu-heading h3 {
+  margin: 0;
+}
+
+.game-menu-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.game-menu-audio-toggle {
+  width: auto;
+  min-width: 132px;
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: 999px;
+}
+
+.game-menu-audio-toggle.enabled {
+  background: rgba(124, 242, 191, 0.18);
+  color: #d9ffe9;
+  border: 1px solid rgba(124, 242, 191, 0.6);
+}
+
+.game-menu-audio-toggle.secondary {
+  border: 1px solid rgba(149, 178, 211, 0.38);
+  color: #eef6ff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 640px) {
+  .game-menu-heading {
+    flex-wrap: wrap;
+  }
+
+  .game-menu-audio-toggle {
+    width: auto;
+  }
+}
+
+.game-menu-heading h3 {
+  margin-bottom: 4px;
+}
+
+.game-menu-heading p {
+  margin: 0;
+}
+
+.game-menu-arc-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.2fr) minmax(300px, 1fr);
+  gap: 16px;
+  min-height: 520px;
+}
+
+.game-menu-arc-stage {
+  position: relative;
+  border: 0;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #000;
+  perspective: 1600px;
+}
+
+.game-song-rolodex {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-auto-flow: row;
+  grid-auto-rows: minmax(170px, 184px);
+  gap: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 42vh 18px;
+  margin: 0;
+  perspective: 1400px;
+  scroll-snap-type: y proximity;
+  scroll-padding-block: 42vh;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  background: #000;
+}
+
+.game-song-rolodex::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .game-song-card {
   position: relative;
   overflow: hidden;
-  border: 1px solid rgba(149, 178, 211, 0.3);
+  border: 0;
   border-radius: 14px;
   padding: 14px;
   text-align: left;
   background: linear-gradient(155deg, rgba(17, 31, 49, 0.95), rgba(7, 13, 22, 0.92));
   color: var(--text);
-  min-height: 120px;
+  min-height: 170px;
   display: grid;
   align-content: center;
   scroll-snap-align: center;
   transform-style: preserve-3d;
   transform:
-    translateZ(var(--card-z, 8px))
-    rotateY(var(--card-tilt, 0deg))
+    translate3d(0px, var(--card-shift-y, 0px), var(--card-z, 0px))
+    rotateX(var(--card-rotate-x, 0deg))
+    rotateY(var(--card-rotate-y, 0deg))
+    rotateZ(var(--card-rotate-z, 0deg))
     scale(var(--card-scale, 1));
   opacity: var(--card-opacity, 1);
-  transition: transform 220ms ease, opacity 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+  filter:
+    saturate(var(--card-saturation, 1))
+    brightness(var(--card-brightness, 1));
+  transition:
+    transform 110ms cubic-bezier(0.2, 0.78, 0.2, 1),
+    opacity 130ms linear,
+    filter 130ms linear,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
 }
 
 .game-song-card-bg {
@@ -722,8 +903,19 @@ label {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(5, 9, 15, 0.1), rgba(5, 9, 15, 0.72)),
-    radial-gradient(circle at 20% 16%, rgba(255, 255, 255, 0.26), transparent 30%);
+    linear-gradient(180deg, rgba(5, 9, 15, 0.06), rgba(5, 9, 15, 0.76)),
+    radial-gradient(circle at 16% 12%, rgba(255, 255, 255, 0.22), transparent 32%);
+  pointer-events: none;
+}
+
+.game-song-card-glare {
+  position: absolute;
+  inset: -20% 12% 38% -22%;
+  border-radius: 28px;
+  transform: rotate(-7deg);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0));
+  mix-blend-mode: screen;
+  opacity: 0.48;
   pointer-events: none;
 }
 
@@ -748,18 +940,64 @@ label {
 }
 
 .game-song-card.selected {
-  border-color: rgba(124, 242, 191, 0.9);
   box-shadow:
-    0 0 0 2px rgba(124, 242, 191, 0.55),
-    0 0 22px rgba(124, 242, 191, 0.45),
+    0 0 30px rgba(124, 242, 191, 0.5),
     0 22px 42px rgba(0, 0, 0, 0.48);
   opacity: 1;
+  filter: saturate(1.22) brightness(1.08);
+}
+
+.game-menu-control-panel {
+  border: 0;
+  border-radius: 18px;
+  padding: 16px;
+  background: #000;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.game-menu-control-group {
+  display: grid;
+  gap: 10px;
+}
+
+.game-menu-group-label {
+  margin: 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #bfd1e6;
+  opacity: 0.88;
 }
 
 .game-menu-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
-  max-width: 460px;
+}
+
+.game-menu-actions button {
+  margin: 0;
+  min-width: 120px;
+  width: auto;
+}
+
+.game-menu-actions--group button {
+  flex: 1 1 136px;
+}
+
+.game-menu-actions--cta {
+  margin-top: 2px;
+}
+
+.game-menu-actions--cta button {
+  flex: 1 1 180px;
+}
+
+.game-menu-meta {
+  margin: 2px 0 0;
+  opacity: 0.88;
 }
 
 .game-scores-screen {
@@ -1835,6 +2073,11 @@ label {
   gap: 12px;
 }
 
+.game-admin-card__header > div {
+  display: flex;
+  gap: 8px;
+}
+
 .game-song-list {
   display: grid;
   gap: 10px;
@@ -1935,12 +2178,62 @@ label {
     text-align: center;
   }
 
+  .game-view-shell--menu .game-ui-header {
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    gap: 8px 10px;
+    grid-template-areas:
+      "title title"
+      "back refresh";
+  }
+
+  .game-view-shell--menu .game-menu-title {
+    grid-area: title;
+  }
+
+  .game-view-shell--menu .game-ui-link {
+    grid-area: back;
+    justify-self: start;
+  }
+
+  .game-view-shell--menu .game-ui-header > button {
+    grid-area: refresh;
+    justify-self: end;
+  }
+
+  .game-view-shell--menu .game-ui-header .game-ui-link,
+  .game-view-shell--menu .game-ui-header > button {
+    width: auto;
+    min-width: 128px;
+    margin: 0;
+    padding: 8px 14px;
+  }
+
   .game-top-actions {
     justify-content: center;
   }
 
   .game-scores-screen {
     grid-template-columns: 1fr;
+  }
+
+  .game-menu-arc-layout {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .game-menu-arc-stage {
+    min-height: 460px;
+    border-radius: 0;
+  }
+
+  .game-song-rolodex {
+    left: 50%;
+    right: auto;
+    width: 86%;
+    transform: translateX(-50%);
+    padding: 34vh 14px;
+    scroll-padding-block: 34vh;
   }
 
   .ddr-hud {
@@ -2054,6 +2347,26 @@ label {
   .game-scores-screen,
   .ddr-field {
     border-radius: 16px;
+  }
+
+  .game-menu-arc-stage {
+    min-height: 420px;
+    border-radius: 0;
+  }
+
+  .game-song-rolodex {
+    width: 82%;
+    padding: 30vh 12px;
+    grid-auto-rows: minmax(154px, 170px);
+    scroll-padding-block: 30vh;
+  }
+
+  .game-menu-control-panel {
+    padding: 12px;
+  }
+
+  .game-menu-actions button {
+    flex: 1 1 100%;
   }
 
   .ddr-note {

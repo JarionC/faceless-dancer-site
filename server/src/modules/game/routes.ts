@@ -3,9 +3,11 @@ import multer from "multer";
 import { env } from "../../config/env.js";
 import { requireAdmin, requireAuth, requireHolder } from "../../middleware/auth.js";
 import {
+  createPreviewReadStream,
   createAudioReadStream,
   createSongCoverReadStream,
   createSeparatedSourceReadStream,
+  hasPreviewForEntry,
   listSavedBeatEntries,
   materializeLegacyNormalGameBeats,
   listSeparatedSources,
@@ -207,6 +209,19 @@ router.get("/api/beats/:id/audio", requireAuth, async (req, res) => {
   res.setHeader("Content-Type", streamInfo.mimeType);
   res.setHeader("Cache-Control", "no-store");
   streamInfo.stream.pipe(res);
+});
+
+router.get("/api/beats/:id/preview", requireAuth, async (req, res) => {
+  if (!ensureAdminAccess(req, res)) {
+    return;
+  }
+  const preview = createPreviewReadStream(env.beatStorageDir, req.params.id);
+  if (!preview) {
+    return res.status(404).json({ error: "Preview audio not found." });
+  }
+  res.setHeader("Content-Type", preview.mimeType);
+  res.setHeader("Cache-Control", "no-store");
+  preview.stream.pipe(res);
 });
 
 router.post("/api/beats/:id/game-beats", requireAuth, requireAdmin, async (req, res) => {
@@ -462,6 +477,59 @@ router.post("/api/catalog/songs/:entryId/materialize-normal-difficulty", require
   });
 });
 
+router.post("/api/catalog/previews/generate-missing", requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    const entries = await listSavedBeatEntries(env.beatStorageDir);
+    const total = entries.length;
+    let generated = 0;
+    let skippedExisting = 0;
+    const failed: Array<{ entryId: string; error: string }> = [];
+
+    for (const entry of entries) {
+      const entryId = String(entry.id || "").trim();
+      if (!entryId) {
+        continue;
+      }
+      if (hasPreviewForEntry(env.beatStorageDir, entryId)) {
+        skippedExisting += 1;
+        continue;
+      }
+      try {
+        await callWorker("/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entryId,
+            storageDir: env.beatStorageDir,
+            offsetSeconds: env.BEAT_PREVIEW_OFFSET_SECONDS,
+            durationSeconds: env.BEAT_PREVIEW_DURATION_SECONDS
+          }),
+        });
+        generated += 1;
+      } catch (error) {
+        failed.push({
+          entryId,
+          error: error instanceof Error ? error.message : "Preview generation failed.",
+        });
+      }
+    }
+
+    return res.json({
+      ok: true,
+      total,
+      generated,
+      skippedExisting,
+      failedCount: failed.length,
+      failed,
+      offsetSeconds: env.BEAT_PREVIEW_OFFSET_SECONDS,
+      durationSeconds: env.BEAT_PREVIEW_DURATION_SECONDS
+    });
+  } catch (error) {
+    logGameError("generate-missing-previews", { route: "POST /api/game/api/catalog/previews/generate-missing" }, error);
+    return res.status(500).json({ error: error instanceof Error ? error.message : "Failed to generate previews." });
+  }
+});
+
 router.get("/api/public/songs/enabled", async (req, res) => {
   const enabledSongs = listEnabledSongs();
   const songs: Array<{
@@ -542,6 +610,19 @@ router.get("/api/public/beats/:id/audio", async (req, res) => {
   res.setHeader("Content-Type", streamInfo.mimeType);
   res.setHeader("Cache-Control", "no-store");
   streamInfo.stream.pipe(res);
+});
+
+router.get("/api/public/beats/:id/preview", async (req, res) => {
+  if (!isEntryEnabled(req.params.id)) {
+    return res.status(404).json({ error: "Song not found." });
+  }
+  const preview = createPreviewReadStream(env.beatStorageDir, req.params.id);
+  if (!preview) {
+    return res.status(404).json({ error: "Preview audio not found." });
+  }
+  res.setHeader("Content-Type", preview.mimeType);
+  res.setHeader("Cache-Control", "no-store");
+  preview.stream.pipe(res);
 });
 
 router.get("/api/public/analyze/:id/result", async (req, res) => {
