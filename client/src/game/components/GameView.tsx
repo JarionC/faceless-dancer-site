@@ -1374,7 +1374,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
             {songLeaderboard.length === 0 ? <p>No scores yet for this track.</p> : (
               <ol>
                 {songLeaderboard.slice(0, 20).map((row) => (
-                  <li key={`${row.publicKey}-${row.displayName}`}><span>{row.displayName}</span><strong>{row.score}</strong></li>
+                  <li key={`${row.publicKey}-${row.displayName}`}><span>{row.displayName}</span><strong className="game-score-number">{row.score}</strong></li>
                 ))}
               </ol>
             )}
@@ -1384,7 +1384,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
             {overallLeaderboard.length === 0 ? <p>No overall scores yet.</p> : (
               <ol>
                 {overallLeaderboard.slice(0, 20).map((row) => (
-                  <li key={`${row.publicKey}-${row.displayName}`}><span>{row.displayName}</span><strong>{row.totalScore}</strong></li>
+                  <li key={`${row.publicKey}-${row.displayName}`}><span>{row.displayName}</span><strong className="game-score-number">{row.totalScore}</strong></li>
                 ))}
               </ol>
             )}
@@ -1410,8 +1410,8 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
           </div>
           <div className="game-play-hud">
             <div className="ddr-life"><span>LIFE</span><div className="ddr-life-bar"><div className="ddr-life-fill" style={{ width: `${lifePercent}%` }} /></div></div>
-            <div className="ddr-score-stack"><span className="ddr-score-label">SCORE</span><strong>{totalScore}</strong></div>
-            <div className="ddr-score-stack"><span className="ddr-score-label">COMBO</span><strong>{score.combo}</strong></div>
+            <div className="ddr-score-stack"><span className="ddr-score-label">SCORE</span><strong className="game-score-number">{totalScore}</strong></div>
+            <div className="ddr-score-stack"><span className="ddr-score-label">COMBO</span><strong className="game-score-number">{score.combo}</strong></div>
           </div>
         </div>
 
@@ -1518,15 +1518,15 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
               {lastJudgement.toUpperCase()}
             </div>
           ) : null}
-          {score.combo > 1 ? <div className="ddr-combo-popup">{score.combo} COMBO</div> : null}
+          {score.combo > 1 ? <div className="ddr-combo-popup"><span className="game-score-number">{score.combo}</span> COMBO</div> : null}
           {phase === "countdown" && countdownBeats > 0 ? <div className="game-countdown-overlay">{countdownBeats}</div> : null}
 
           {resultsModal.visible ? (
             <div className="game-results-modal" role="dialog" aria-modal="true">
               <h3>Song Complete</h3>
-              <p className="result-line">Score: <strong>{resultsModal.score}</strong></p>
-              <p className="result-line">Accuracy: <strong>{resultsModal.percentage.toFixed(2)}%</strong></p>
-              {canSubmitHolderScore && resultsModal.rank ? <p className="result-line">Rank: <strong>#{resultsModal.rank}</strong></p> : null}
+              <p className="result-line">Score: <strong className="game-score-number">{resultsModal.score}</strong></p>
+              <p className="result-line">Accuracy: <strong className="game-score-number">{resultsModal.percentage.toFixed(2)}%</strong></p>
+              {canSubmitHolderScore && resultsModal.rank ? <p className="result-line">Rank: <strong className="game-score-number">#{resultsModal.rank}</strong></p> : null}
               <p className="small">{resultsModal.message}</p>
               <button type="button" onClick={() => goToMenu()}>Back To Menu</button>
             </div>

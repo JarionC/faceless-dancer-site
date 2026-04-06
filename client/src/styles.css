@@ -606,18 +606,17 @@ label {
 
 .game-menu-meta,
 .game-song-card span,
-.game-score-panel strong,
-.game-score-panel ol,
 .ddr-score-label,
-.ddr-score-stack strong,
 .ddr-life span,
-.ddr-combo-popup,
 .ddr-judge-popup,
 .game-play-subtitle,
-.game-top-status,
-.result-line strong {
+.game-top-status {
   font-family: "GameScore", "GamePlayed", "Space Grotesk", sans-serif;
   letter-spacing: 0.03em;
+}
+
+.game-score-number {
+  font-family: "GamePlayed", "Space Grotesk", "Segoe UI", sans-serif;
 }
 
 .game-wallet-dock {
