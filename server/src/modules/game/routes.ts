@@ -1,7 +1,11 @@
 import { Router } from "express";
 import multer from "multer";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import path from "node:path";
 import { env } from "../../config/env.js";
 import { requireAdmin, requireAuth, requireHolder } from "../../middleware/auth.js";
+import { buildObjectPath, downloadFromBunny, uploadBufferToBunny } from "../storage/bunnyStorage.js";
 import {
   createPreviewReadStream,
   createAudioReadStream,
@@ -104,6 +108,60 @@ async function callWorker(path: string, init?: RequestInit): Promise<any> {
       ? String((lastNetworkError as any).cause?.message ?? (lastNetworkError as any).cause)
       : "";
   throw new Error(causeMessage ? `${baseMessage} | ${causeMessage}` : baseMessage || "Worker network request failed.");
+}
+
+function isBunnyBeatStorageProvider(): boolean {
+  return env.BEAT_STORAGE_PROVIDER === "bunny";
+}
+
+function bunnyBeatObjectPath(relativePath: string): string {
+  return buildObjectPath([env.BEAT_BUNNY_PREFIX, relativePath]);
+}
+
+function getPreviewWorkerStorageDir(): string {
+  return isBunnyBeatStorageProvider() ? env.beatLocalCacheDir : env.beatStorageDir;
+}
+
+async function hydratePreviewWorkerInput(entryId: string, entry: Record<string, unknown>): Promise<void> {
+  if (!isBunnyBeatStorageProvider()) {
+    return;
+  }
+
+  const audio = entry.audio as { storedFileName?: string } | undefined;
+  const storedFileName = String(audio?.storedFileName ?? "").trim();
+  if (!storedFileName) {
+    throw new Error("Saved entry has no audio file reference.");
+  }
+
+  const workerDir = getPreviewWorkerStorageDir();
+  const jsonDir = path.join(workerDir, "json");
+  const audioDir = path.join(workerDir, "audio");
+  const previewsDir = path.join(workerDir, "previews");
+  await fsp.mkdir(jsonDir, { recursive: true });
+  await fsp.mkdir(audioDir, { recursive: true });
+  await fsp.mkdir(previewsDir, { recursive: true });
+
+  const sourceAudio = await downloadFromBunny(bunnyBeatObjectPath(`audio/${storedFileName}`));
+  await fsp.writeFile(path.join(audioDir, storedFileName), sourceAudio.buffer);
+  await fsp.writeFile(path.join(jsonDir, `${entryId}.json`), JSON.stringify(entry, null, 2), "utf8");
+}
+
+async function publishGeneratedPreviewToBunny(entryId: string): Promise<void> {
+  if (!isBunnyBeatStorageProvider()) {
+    return;
+  }
+
+  const previewPath = path.join(getPreviewWorkerStorageDir(), "previews", `${entryId}.wav`);
+  if (!fs.existsSync(previewPath)) {
+    throw new Error("Preview generation completed but preview file was not found on worker cache.");
+  }
+
+  const bytes = await fsp.readFile(previewPath);
+  await uploadBufferToBunny({
+    buffer: bytes,
+    objectPath: bunnyBeatObjectPath(`previews/${entryId}.wav`),
+    contentType: "audio/wav",
+  });
 }
 
 function formatError(error: unknown): { message: string; stack?: string; cause?: string } {
@@ -495,16 +553,23 @@ router.post("/api/catalog/previews/generate-missing", requireAuth, requireAdmin,
         continue;
       }
       try {
+        const fullEntry = await readSavedBeatEntry(env.beatStorageDir, entryId);
+        if (!fullEntry) {
+          failed.push({ entryId, error: "Saved entry not found." });
+          continue;
+        }
+        await hydratePreviewWorkerInput(entryId, fullEntry);
         await callWorker("/preview", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             entryId,
-            storageDir: env.beatStorageDir,
+            storageDir: getPreviewWorkerStorageDir(),
             offsetSeconds: env.BEAT_PREVIEW_OFFSET_SECONDS,
             durationSeconds: env.BEAT_PREVIEW_DURATION_SECONDS
           }),
         });
+        await publishGeneratedPreviewToBunny(entryId);
         generated += 1;
       } catch (error) {
         failed.push({
