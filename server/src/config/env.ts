@@ -15,7 +15,6 @@ const envSchema = z.object({
 
   DATABASE_URL: z.string().url(),
   DATABASE_SSL_REJECT_UNAUTHORIZED: z.enum(["true", "false"]).default("false"),
-  DATABASE_PATH: z.string().default("/app/data/faceless-dancer.db"),
   RUN_MIGRATIONS_ON_START: z.enum(["true", "false"]).default("false"),
 
   AUTH_MESSAGE_PREFIX: z.string().default("Faceless Dancer wallet verification"),
@@ -52,8 +51,7 @@ const envSchema = z.object({
   ALLOWED_IMAGE_MIME: z.string().default("image/png,image/jpeg,image/webp"),
   ALLOWED_AUDIO_MIME: z.string().default("audio/mpeg,audio/wav,audio/x-wav"),
 
-  BEAT_STORAGE_DIR: z.string().default("./server/beat-storage"),
-  BEAT_STORAGE_PROVIDER: z.enum(["local", "bunny"]).default("local"),
+  BEAT_STORAGE_PROVIDER: z.literal("bunny"),
   BEAT_BUNNY_PREFIX: z.string().default("beat-storage"),
   BEAT_LOCAL_CACHE_DIR: z.string().default("./server/beat-storage-cache"),
   BEAT_API_MAX_BODY_BYTES: z.coerce.number().int().positive().default(50 * 1024 * 1024),
@@ -85,9 +83,6 @@ export const env = {
   storageEndpoint:
     data.BUNNY_STORAGE_ENDPOINT ??
     (data.BUNNY_STORAGE_REGION ? `https://${data.BUNNY_STORAGE_REGION}.storage.bunnycdn.com` : "https://storage.bunnycdn.com"),
-  beatStorageDir: path.isAbsolute(data.BEAT_STORAGE_DIR)
-    ? data.BEAT_STORAGE_DIR
-    : path.resolve(process.cwd(), data.BEAT_STORAGE_DIR),
   beatLocalCacheDir: path.isAbsolute(data.BEAT_LOCAL_CACHE_DIR)
     ? data.BEAT_LOCAL_CACHE_DIR
     : path.resolve(process.cwd(), data.BEAT_LOCAL_CACHE_DIR),

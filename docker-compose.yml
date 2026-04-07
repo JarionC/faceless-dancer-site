@@ -41,7 +41,6 @@ services:
       - ./.env
     environment:
       DATABASE_URL: "${DATABASE_URL_DOCKER:-postgresql://postgres:postgres@postgres:5432/faceless_dancer}"
-      BEAT_STORAGE_DIR: /app/beat-storage
       BEAT_SEPARATION_WORKER_URL: http://separation-worker:8792
       RUN_MIGRATIONS_ON_START: "${RUN_MIGRATIONS_ON_START:-false}"
     volumes:
