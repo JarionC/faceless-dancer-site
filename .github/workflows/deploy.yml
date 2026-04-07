@@ -48,7 +48,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           source: "."
           target: ${{ secrets.VPS_APP_DIR }}
-          rm: false
+          rm: true
           strip_components: 0
 
       - name: Write .env on VPS
