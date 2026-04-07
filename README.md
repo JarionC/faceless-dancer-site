@@ -2,7 +2,7 @@
 
 Single-box deployment scaffold with:
 - Preact frontend
-- Express + SQLite backend
+- Express + Postgres backend
 - Solana signature auth + holder verification
 - Bunny storage uploads
 - Admin console APIs for reviewing submissions and downloading assets
@@ -33,12 +33,16 @@ Single-box deployment scaffold with:
    - backend health: `http://localhost:3001/health`
 
 Persistent storage uses absolute host paths outside the repo:
-- `DB_HOST_PATH` (default `/var/lib/faceless-dancer/data`) -> `/app/data`
+- `POSTGRES_HOST_PATH` (default `/var/lib/faceless-dancer/postgres`) -> Postgres data dir
 - `BEAT_STORAGE_HOST_PATH` (default `/var/lib/faceless-dancer/beat-storage`) -> `/app/beat-storage`
 - `WORKER_MODELS_HOST_PATH` (default `/var/lib/faceless-dancer/worker-models`) -> `/app/worker-models`
 
 Deployment/startup does not copy, reset, or replace persistent files.
 Schema changes are explicit: run migrations manually when you choose.
+
+One-time migration/import helpers:
+- `npm run import:db --workspace server` (SQLite backup -> Postgres)
+- `npm run import:beat-storage --workspace server` (local beat-storage backup -> Bunny prefix)
 
 ## API summary
 - `POST /api/auth/nonce`

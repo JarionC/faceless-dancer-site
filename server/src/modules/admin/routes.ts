@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { updateSubmissionStatusSchema } from "@faceless/shared";
-import { db } from "../../db/sqlite.js";
+import { pool } from "../../db/postgres.js";
 import { requireAuth, requireAdmin } from "../../middleware/auth.js";
 import { downloadFromBunny } from "../storage/bunnyStorage.js";
 
@@ -8,7 +8,7 @@ const router = Router();
 
 router.use(requireAuth, requireAdmin);
 
-router.get("/submissions", (req, res) => {
+router.get("/submissions", async (req, res) => {
   const status = typeof req.query.status === "string" ? req.query.status : "";
 
   const base = `
@@ -19,29 +19,28 @@ router.get("/submissions", (req, res) => {
   `;
 
   const rows = status
-    ? db.prepare(`${base} WHERE s.status != 'draft' AND s.status = ? ORDER BY s.created_at DESC`).all(status)
-    : db.prepare(`${base} WHERE s.status != 'draft' ORDER BY s.created_at DESC`).all();
+    ? (await pool.query(`${base} WHERE s.status != 'draft' AND s.status = $1 ORDER BY s.created_at DESC`, [status])).rows
+    : (await pool.query(`${base} WHERE s.status != 'draft' ORDER BY s.created_at DESC`)).rows;
 
   return res.json({ submissions: rows });
 });
 
-router.get("/submissions/:submissionId", (req, res) => {
+router.get("/submissions/:submissionId", async (req, res) => {
   const submissionId = req.params.submissionId;
 
-  const submission = db
-    .prepare(`SELECT * FROM submissions WHERE id = ? LIMIT 1`)
-    .get(submissionId);
+  const submissionResult = await pool.query(`SELECT * FROM submissions WHERE id = $1 LIMIT 1`, [submissionId]);
+  const submission = submissionResult.rows[0];
 
   if (!submission) {
     return res.status(404).json({ error: "Submission not found" });
   }
 
-  const assets = db.prepare(`SELECT * FROM assets WHERE submission_id = ? ORDER BY created_at ASC`).all(submissionId);
+  const assetsResult = await pool.query(`SELECT * FROM assets WHERE submission_id = $1 ORDER BY created_at ASC`, [submissionId]);
 
-  return res.json({ submission, assets });
+  return res.json({ submission, assets: assetsResult.rows });
 });
 
-router.post("/submissions/:submissionId/status", (req, res) => {
+router.post("/submissions/:submissionId/status", async (req, res) => {
   const submissionId = req.params.submissionId;
 
   const parsed = updateSubmissionStatusSchema.safeParse(req.body);
@@ -49,15 +48,12 @@ router.post("/submissions/:submissionId/status", (req, res) => {
     return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
-  const result = db
-    .prepare(`UPDATE submissions SET status = ?, rejection_reason = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(
-      parsed.data.status,
-      parsed.data.status === "rejected" ? parsed.data.rejectionReason!.trim() : null,
-      submissionId
-    );
+  const result = await pool.query(
+    `UPDATE submissions SET status = $1, rejection_reason = $2, updated_at = now() WHERE id = $3`,
+    [parsed.data.status, parsed.data.status === "rejected" ? parsed.data.rejectionReason!.trim() : null, submissionId]
+  );
 
-  if (result.changes === 0) {
+  if (result.rowCount === 0) {
     return res.status(404).json({ error: "Submission not found" });
   }
 
@@ -66,12 +62,13 @@ router.post("/submissions/:submissionId/status", (req, res) => {
 
 router.get("/assets/:assetId/download", async (req, res) => {
   try {
-    const asset = db
-      .prepare(`SELECT original_name, bunny_object_path, mime_type FROM assets WHERE id = ? LIMIT 1`)
-      .get(req.params.assetId) as
-      | { original_name: string; bunny_object_path: string; mime_type: string }
-      | undefined;
+    const assetResult = await pool.query<{
+      original_name: string;
+      bunny_object_path: string;
+      mime_type: string;
+    }>(`SELECT original_name, bunny_object_path, mime_type FROM assets WHERE id = $1 LIMIT 1`, [req.params.assetId]);
 
+    const asset = assetResult.rows[0];
     if (!asset) {
       return res.status(404).json({ error: "Asset not found" });
     }

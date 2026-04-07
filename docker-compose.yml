@@ -1,4 +1,17 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: faceless-dancer-postgres
+    environment:
+      POSTGRES_DB: faceless_dancer
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ${POSTGRES_HOST_PATH:-/var/lib/faceless-dancer/postgres}:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:55432:5432"
+    restart: unless-stopped
+
   separation-worker:
     build:
       context: ./faceless-game-test
@@ -20,17 +33,18 @@ services:
       dockerfile: server/Dockerfile
     container_name: faceless-dancer-server
     depends_on:
+      postgres:
+        condition: service_started
       separation-worker:
         condition: service_started
     env_file:
       - ./.env
     environment:
-      DATABASE_PATH: /app/data/faceless-dancer.db
+      DATABASE_URL: "${DATABASE_URL_DOCKER:-postgresql://postgres:postgres@postgres:5432/faceless_dancer}"
       BEAT_STORAGE_DIR: /app/beat-storage
       BEAT_SEPARATION_WORKER_URL: http://separation-worker:8792
       RUN_MIGRATIONS_ON_START: "${RUN_MIGRATIONS_ON_START:-false}"
     volumes:
-      - ${DB_HOST_PATH:-/var/lib/faceless-dancer/data}:/app/data
       - ${BEAT_STORAGE_HOST_PATH:-/var/lib/faceless-dancer/beat-storage}:/app/beat-storage
     ports:
       - "127.0.0.1:3001:3001"

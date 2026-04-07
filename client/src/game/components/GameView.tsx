@@ -1260,27 +1260,34 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
           <div className="game-menu-arc-layout">
             <div className="game-menu-arc-stage">
               <div className="game-song-rolodex" ref={rolodexRef} onScroll={handleRolodexScroll}>
-                {songs.map((song) => (
-              <button
-                key={song.beatEntryId}
-                type="button"
-                data-song-id={song.beatEntryId}
-                className={`game-song-card${selectedId === song.beatEntryId ? " selected" : ""}`}
-                onClick={() => focusSongCard(song.beatEntryId, true)}
-              >
-                {song.coverImageUrl ? (
-                  <img className="game-song-card-bg" src={song.coverImageUrl} alt="" draggable={false} />
-                ) : null}
-                <div className="game-song-card-overlay" />
-                <div className="game-song-card-glare" />
-                <strong>{song.title}</strong>
-                <span>
-                  {song.availableDifficulties?.length > 0
-                    ? `${song.availableDifficulties.join(", ")}`
-                    : `${song.gameBeatCount || song.majorBeatCount} notes`}
-                </span>
-              </button>
-                ))}
+                {loadingSongs ? (
+                  <div className="game-song-loading" aria-live="polite" aria-label="Loading songs">
+                    <span className="game-song-loading-spinner" aria-hidden="true" />
+                    <strong>Loading</strong>
+                  </div>
+                ) : (
+                  songs.map((song) => (
+                    <button
+                      key={song.beatEntryId}
+                      type="button"
+                      data-song-id={song.beatEntryId}
+                      className={`game-song-card${selectedId === song.beatEntryId ? " selected" : ""}`}
+                      onClick={() => focusSongCard(song.beatEntryId, true)}
+                    >
+                      {song.coverImageUrl ? (
+                        <img className="game-song-card-bg" src={song.coverImageUrl} alt="" draggable={false} />
+                      ) : null}
+                      <div className="game-song-card-overlay" />
+                      <div className="game-song-card-glare" />
+                      <strong>{song.title}</strong>
+                      <span>
+                        {song.availableDifficulties?.length > 0
+                          ? `${song.availableDifficulties.join(", ")}`
+                          : `${song.gameBeatCount || song.majorBeatCount} notes`}
+                      </span>
+                    </button>
+                  ))
+                )}
               </div>
             </div>
 

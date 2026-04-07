@@ -857,6 +857,27 @@ label {
   display: none;
 }
 
+.game-song-loading {
+  min-height: 170px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  color: #e8f2ff;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.game-song-loading-spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: conic-gradient(from 90deg, #69c6ff, #7cf2bf, #f7cc7a, #69c6ff);
+  -webkit-mask: radial-gradient(circle, transparent 58%, #000 59%);
+  mask: radial-gradient(circle, transparent 58%, #000 59%);
+  animation: game-song-loading-spin 0.9s linear infinite;
+}
+
 .game-song-card {
   position: relative;
   overflow: hidden;
@@ -1668,6 +1689,11 @@ label {
   0% { transform: translateY(-50%) scale(0.96); }
   50% { transform: translateY(-50%) scale(1.06); }
   100% { transform: translateY(-50%) scale(0.96); }
+}
+
+@keyframes game-song-loading-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 @keyframes orb-control-breathe {

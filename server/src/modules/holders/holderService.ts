@@ -5,7 +5,7 @@ import { getSiteSettings } from "../siteSettings/service.js";
 const connection = new Connection(env.SOLANA_RPC_URL, "confirmed");
 
 export async function checkHolderEligibility(ownerPublicKey: string): Promise<boolean> {
-  const tokenAddress = getSiteSettings().tokenAddress.trim();
+  const tokenAddress = (await getSiteSettings()).tokenAddress.trim();
   if (!tokenAddress) {
     return false;
   }

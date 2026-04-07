@@ -1,4 +1,4 @@
-import { runMigrations } from "./migrateUtil.js";
+import { runMigrations } from "./postgresMigrateUtil.js";
 
-runMigrations();
-console.log("Migrations complete.");
+await runMigrations();
+console.log("Postgres migrations complete.");

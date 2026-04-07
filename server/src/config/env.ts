@@ -13,6 +13,8 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   CLIENT_ORIGIN: z.string().default("http://localhost:5173"),
 
+  DATABASE_URL: z.string().url(),
+  DATABASE_SSL_REJECT_UNAUTHORIZED: z.enum(["true", "false"]).default("false"),
   DATABASE_PATH: z.string().default("/app/data/faceless-dancer.db"),
   RUN_MIGRATIONS_ON_START: z.enum(["true", "false"]).default("false"),
 
@@ -51,6 +53,9 @@ const envSchema = z.object({
   ALLOWED_AUDIO_MIME: z.string().default("audio/mpeg,audio/wav,audio/x-wav"),
 
   BEAT_STORAGE_DIR: z.string().default("./server/beat-storage"),
+  BEAT_STORAGE_PROVIDER: z.enum(["local", "bunny"]).default("local"),
+  BEAT_BUNNY_PREFIX: z.string().default("beat-storage"),
+  BEAT_LOCAL_CACHE_DIR: z.string().default("./server/beat-storage-cache"),
   BEAT_API_MAX_BODY_BYTES: z.coerce.number().int().positive().default(50 * 1024 * 1024),
   BEAT_SEPARATION_WORKER_URL: z.string().url().default("http://separation-worker:8792"),
   BEAT_SEPARATION_LOG_TAIL_LINES: z.coerce.number().int().positive().default(300),
@@ -83,5 +88,9 @@ export const env = {
   beatStorageDir: path.isAbsolute(data.BEAT_STORAGE_DIR)
     ? data.BEAT_STORAGE_DIR
     : path.resolve(process.cwd(), data.BEAT_STORAGE_DIR),
+  beatLocalCacheDir: path.isAbsolute(data.BEAT_LOCAL_CACHE_DIR)
+    ? data.BEAT_LOCAL_CACHE_DIR
+    : path.resolve(process.cwd(), data.BEAT_LOCAL_CACHE_DIR),
   runMigrationsOnStart: data.RUN_MIGRATIONS_ON_START === "true",
+  databaseSslRejectUnauthorized: data.DATABASE_SSL_REJECT_UNAUTHORIZED === "true",
 };

@@ -1,5 +1,5 @@
 import type { SiteSettings } from "@faceless/shared/dist/types/siteSettings.js";
-import { db } from "../../db/sqlite.js";
+import { pool } from "../../db/postgres.js";
 import { env } from "../../config/env.js";
 
 interface SiteSettingsRow {
@@ -16,19 +16,18 @@ interface SiteSettingsRow {
   token_address: string | null;
 }
 
-function readRow() {
-  return db
-    .prepare(
-      `SELECT twitter_url, show_twitter, youtube_url, show_youtube, youtube_live_channel_id, telegram_url, show_telegram, dexscreener_url, show_dexscreener, pump_fun_url, token_address
-       FROM site_settings
-       WHERE id = 1
-       LIMIT 1`
-    )
-    .get() as SiteSettingsRow | undefined;
+async function readRow() {
+  const result = await pool.query<SiteSettingsRow>(
+    `SELECT twitter_url, show_twitter, youtube_url, show_youtube, youtube_live_channel_id, telegram_url, show_telegram, dexscreener_url, show_dexscreener, pump_fun_url, token_address
+     FROM site_settings
+     WHERE id = 1
+     LIMIT 1`
+  );
+  return result.rows[0];
 }
 
-export function getSiteSettings(): SiteSettings {
-  const row = readRow();
+export async function getSiteSettings(): Promise<SiteSettings> {
+  const row = await readRow();
 
   return {
     twitterUrl: row?.twitter_url ?? env.SITE_TWITTER_URL,
@@ -45,8 +44,8 @@ export function getSiteSettings(): SiteSettings {
   };
 }
 
-export function saveSiteSettings(settings: SiteSettings) {
-  db.prepare(
+export async function saveSiteSettings(settings: SiteSettings): Promise<SiteSettings> {
+  await pool.query(
     `INSERT INTO site_settings (
       id,
       twitter_url,
@@ -61,7 +60,7 @@ export function saveSiteSettings(settings: SiteSettings) {
       pump_fun_url,
       token_address,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
     ON CONFLICT(id) DO UPDATE SET
       twitter_url = excluded.twitter_url,
       show_twitter = excluded.show_twitter,
@@ -74,20 +73,21 @@ export function saveSiteSettings(settings: SiteSettings) {
       show_dexscreener = excluded.show_dexscreener,
       pump_fun_url = excluded.pump_fun_url,
       token_address = excluded.token_address,
-      updated_at = datetime('now')`
-  ).run(
-    1,
-    settings.twitterUrl || null,
-    settings.showTwitter ? 1 : 0,
-    settings.youtubeUrl || null,
-    settings.showYoutube ? 1 : 0,
-    settings.youtubeLiveChannelId.trim() || null,
-    settings.telegramUrl || null,
-    settings.showTelegram ? 1 : 0,
-    settings.dexscreenerUrl || null,
-    settings.showDexscreener ? 1 : 0,
-    settings.pumpFunUrl || null,
-    settings.tokenAddress || null
+      updated_at = now()`,
+    [
+      1,
+      settings.twitterUrl || null,
+      settings.showTwitter ? 1 : 0,
+      settings.youtubeUrl || null,
+      settings.showYoutube ? 1 : 0,
+      settings.youtubeLiveChannelId.trim() || null,
+      settings.telegramUrl || null,
+      settings.showTelegram ? 1 : 0,
+      settings.dexscreenerUrl || null,
+      settings.showDexscreener ? 1 : 0,
+      settings.pumpFunUrl || null,
+      settings.tokenAddress || null,
+    ]
   );
 
   return getSiteSettings();

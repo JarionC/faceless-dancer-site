@@ -18,7 +18,7 @@ COPY server/package.json ./server/package.json
 COPY shared/package.json ./shared/package.json
 RUN npm install --omit=dev --workspace @faceless/server --workspace @faceless/shared
 COPY --from=build /app/server/dist ./server/dist
-COPY --from=build /app/server/src/db/migrations ./server/dist/db/migrations
+COPY --from=build /app/server/src/db/postgresMigrations ./server/dist/db/postgresMigrations
 COPY --from=build /app/shared/dist ./shared/dist
 VOLUME ["/app/data"]
 WORKDIR /app/server

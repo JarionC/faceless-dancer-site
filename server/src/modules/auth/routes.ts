@@ -2,7 +2,7 @@ import { type Response, Router } from "express";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
 import { nonceRequestSchema, verifySignatureSchema } from "@faceless/shared";
-import { db } from "../../db/sqlite.js";
+import { pool } from "../../db/postgres.js";
 import { env } from "../../config/env.js";
 import { createId, hashToken, randomToken } from "../../utils/crypto.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "./tokens.js";
@@ -35,7 +35,7 @@ const clearAuthCookies = (res: Response) => {
   res.clearCookie("refreshToken", { path: "/" });
 };
 
-router.post("/nonce", (req, res) => {
+router.post("/nonce", async (req, res) => {
   const parsed = nonceRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
@@ -53,9 +53,10 @@ router.post("/nonce", (req, res) => {
     `Issued At: ${issuedAt.toISOString()}`,
   ].join("\n");
 
-  db.prepare(
-    `INSERT INTO nonces (id, public_key, nonce, message, expires_at) VALUES (?, ?, ?, ?, ?)`
-  ).run(createId(), publicKey, nonce, message, expiresAt.toISOString());
+  await pool.query(
+    `INSERT INTO nonces (id, public_key, nonce, message, expires_at) VALUES ($1, $2, $3, $4, $5)`,
+    [createId(), publicKey, nonce, message, expiresAt.toISOString()]
+  );
 
   return res.json({ nonce, message, expiresAt: expiresAt.toISOString() });
 });
@@ -68,14 +69,21 @@ router.post("/verify", async (req, res) => {
 
   const { publicKey, nonce, message, signature } = parsed.data;
 
-  const nonceRow = db
-    .prepare(
-      `SELECT id, message, expires_at, used_at FROM nonces WHERE public_key = ? AND nonce = ? ORDER BY rowid DESC LIMIT 1`
-    )
-    .get(publicKey, nonce) as
-    | { id: string; message: string; expires_at: string; used_at: string | null }
-    | undefined;
+  const nonceResult = await pool.query<{
+    id: string;
+    message: string;
+    expires_at: string;
+    used_at: string | null;
+  }>(
+    `SELECT id, message, expires_at, used_at
+     FROM nonces
+     WHERE public_key = $1 AND nonce = $2
+     ORDER BY expires_at DESC
+     LIMIT 1`,
+    [publicKey, nonce]
+  );
 
+  const nonceRow = nonceResult.rows[0];
   if (!nonceRow) {
     return res.status(400).json({ error: "Nonce not found" });
   }
@@ -116,20 +124,26 @@ router.post("/verify", async (req, res) => {
   }
   const isAdmin = env.adminWallets.includes(publicKey);
 
-  const existingUser = db
-    .prepare(`SELECT id FROM users WHERE public_key = ? LIMIT 1`)
-    .get(publicKey) as { id: string } | undefined;
+  const existingUserResult = await pool.query<{ id: string }>(
+    `SELECT id FROM users WHERE public_key = $1 LIMIT 1`,
+    [publicKey]
+  );
 
+  const existingUser = existingUserResult.rows[0];
   const userId = existingUser?.id ?? createId();
   if (!existingUser) {
-    db.prepare(`INSERT INTO users (id, public_key, is_admin, is_holder) VALUES (?, ?, ?, ?)`)
-      .run(userId, publicKey, isAdmin ? 1 : 0, isHolder ? 1 : 0);
+    await pool.query(
+      `INSERT INTO users (id, public_key, is_admin, is_holder) VALUES ($1, $2, $3, $4)`,
+      [userId, publicKey, isAdmin ? 1 : 0, isHolder ? 1 : 0]
+    );
   } else {
-    db.prepare(`UPDATE users SET is_admin = ?, is_holder = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(isAdmin ? 1 : 0, isHolder ? 1 : 0, userId);
+    await pool.query(
+      `UPDATE users SET is_admin = $1, is_holder = $2, updated_at = now() WHERE id = $3`,
+      [isAdmin ? 1 : 0, isHolder ? 1 : 0, userId]
+    );
   }
 
-  db.prepare(`UPDATE nonces SET used_at = datetime('now') WHERE id = ?`).run(nonceRow.id);
+  await pool.query(`UPDATE nonces SET used_at = now() WHERE id = $1`, [nonceRow.id]);
 
   const sessionPayload = { userId, publicKey, isHolder, isAdmin };
   const accessToken = signAccessToken(sessionPayload);
@@ -137,14 +151,16 @@ router.post("/verify", async (req, res) => {
 
   const refreshHash = hashToken(refreshToken);
   const refreshExpiry = new Date(Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  db.prepare(`INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)`)
-    .run(createId(), userId, refreshHash, refreshExpiry);
+  await pool.query(
+    `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)`,
+    [createId(), userId, refreshHash, refreshExpiry]
+  );
 
   setAuthCookies(res, accessToken, refreshToken);
   return res.json({ authenticated: true, isHolder, isAdmin, publicKey });
 });
 
-router.post("/refresh", (req, res) => {
+router.post("/refresh", async (req, res) => {
   const token = req.cookies?.refreshToken as string | undefined;
   if (!token) {
     return res.status(401).json({ error: "Missing refresh token" });
@@ -158,27 +174,35 @@ router.post("/refresh", (req, res) => {
   }
 
   const tokenHash = hashToken(token);
-  const row = db
-    .prepare(`SELECT id, expires_at, revoked_at FROM refresh_tokens WHERE user_id = ? AND token_hash = ? LIMIT 1`)
-    .get(payload.userId, tokenHash) as
-    | { id: string; expires_at: string; revoked_at: string | null }
-    | undefined;
+  const refreshResult = await pool.query<{
+    id: string;
+    expires_at: string;
+    revoked_at: string | null;
+  }>(
+    `SELECT id, expires_at, revoked_at FROM refresh_tokens WHERE user_id = $1 AND token_hash = $2 LIMIT 1`,
+    [payload.userId, tokenHash]
+  );
 
+  const row = refreshResult.rows[0];
   if (!row || row.revoked_at || new Date(row.expires_at).getTime() < Date.now()) {
     return res.status(401).json({ error: "Refresh token revoked or expired" });
   }
 
-  const user = db
-    .prepare(`SELECT public_key, is_admin, is_holder FROM users WHERE id = ? LIMIT 1`)
-    .get(payload.userId) as
-    | { public_key: string; is_admin: number; is_holder: number }
-    | undefined;
+  const userResult = await pool.query<{
+    public_key: string;
+    is_admin: number;
+    is_holder: number;
+  }>(
+    `SELECT public_key, is_admin, is_holder FROM users WHERE id = $1 LIMIT 1`,
+    [payload.userId]
+  );
 
+  const user = userResult.rows[0];
   if (!user) {
     return res.status(401).json({ error: "User missing" });
   }
 
-  db.prepare(`UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE id = ?`).run(row.id);
+  await pool.query(`UPDATE refresh_tokens SET revoked_at = now() WHERE id = $1`, [row.id]);
 
   const sessionPayload = {
     userId: payload.userId,
@@ -191,18 +215,19 @@ router.post("/refresh", (req, res) => {
   const nextRefreshHash = hashToken(nextRefresh);
   const nextRefreshExpiry = new Date(Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-  db.prepare(`INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)`)
-    .run(createId(), payload.userId, nextRefreshHash, nextRefreshExpiry);
+  await pool.query(
+    `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)`,
+    [createId(), payload.userId, nextRefreshHash, nextRefreshExpiry]
+  );
 
   setAuthCookies(res, signAccessToken(sessionPayload), nextRefresh);
   return res.json({ refreshed: true });
 });
 
-router.post("/logout", (req, res) => {
+router.post("/logout", async (req, res) => {
   const token = req.cookies?.refreshToken as string | undefined;
   if (token) {
-    db.prepare(`UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE token_hash = ?`) 
-      .run(hashToken(token));
+    await pool.query(`UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $1`, [hashToken(token)]);
   }
 
   clearAuthCookies(res);

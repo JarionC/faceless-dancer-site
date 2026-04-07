@@ -163,7 +163,7 @@ router.get("/api/beats/list", requireAuth, async (req, res) => {
 
   try {
     const entries = await listSavedBeatEntries(env.beatStorageDir);
-    const songMap = new Map(listAllSongs().map((song) => [song.beat_entry_id, song]));
+    const songMap = new Map((await listAllSongs()).map((song) => [song.beat_entry_id, song]));
     const enriched = entries.map((entry) => {
       const song = songMap.get(entry.id);
       return {
@@ -201,7 +201,7 @@ router.get("/api/beats/:id/audio", requireAuth, async (req, res) => {
   if (!entry) {
     return res.status(404).json({ error: "Saved entry not found." });
   }
-  const streamInfo = createAudioReadStream(env.beatStorageDir, entry);
+  const streamInfo = await createAudioReadStream(env.beatStorageDir, entry);
   if (!streamInfo) {
     return res.status(404).json({ error: "Saved audio not found." });
   }
@@ -215,7 +215,7 @@ router.get("/api/beats/:id/preview", requireAuth, async (req, res) => {
   if (!ensureAdminAccess(req, res)) {
     return;
   }
-  const preview = createPreviewReadStream(env.beatStorageDir, req.params.id);
+  const preview = await createPreviewReadStream(env.beatStorageDir, req.params.id);
   if (!preview) {
     return res.status(404).json({ error: "Preview audio not found." });
   }
@@ -292,8 +292,8 @@ router.get("/api/separate/:id/sources", requireAuth, requireAdmin, async (req, r
   return res.json({ ok: true, sources });
 });
 
-router.get("/api/separate/:id/source/:source/audio", requireAuth, requireAdmin, (req, res) => {
-  const streamInfo = createSeparatedSourceReadStream(env.beatStorageDir, req.params.id, req.params.source);
+router.get("/api/separate/:id/source/:source/audio", requireAuth, requireAdmin, async (req, res) => {
+  const streamInfo = await createSeparatedSourceReadStream(env.beatStorageDir, req.params.id, req.params.source);
   if (!streamInfo) {
     return res.status(404).json({ error: "Separated source audio not found." });
   }
@@ -334,7 +334,7 @@ router.post("/api/analyze/:id/start", requireAuth, requireAdmin, async (req, res
       : undefined;
 
   if (analysisOverrides || laneStrengthThresholds) {
-    saveGameControlDefaults({
+    await saveGameControlDefaults({
       analysisOverrides: analysisOverrides ?? null,
       laneStrengthThresholds: laneStrengthThresholds ?? null,
     });
@@ -377,8 +377,8 @@ router.get("/api/analyze/:id/result", requireAuth, requireAdmin, async (req, res
   }
 });
 
-router.get("/api/catalog/songs", requireAuth, requireAdmin, (req, res) => {
-  return res.json({ songs: listAllSongs() });
+router.get("/api/catalog/songs", requireAuth, requireAdmin, async (req, res) => {
+  return res.json({ songs: await listAllSongs() });
 });
 
 router.post("/api/catalog/songs/:entryId/cover", requireAuth, requireAdmin, coverUpload.single("cover"), async (req, res) => {
@@ -399,7 +399,7 @@ router.post("/api/catalog/songs/:entryId/cover", requireAuth, requireAdmin, cove
       mimeType: req.file.mimetype,
       bytes: req.file.buffer
     });
-    const song = setSongCoverImageForEntry(entryId, saved.storedFileName);
+    const song = await setSongCoverImageForEntry(entryId, saved.storedFileName);
     return res.json({
       ok: true,
       coverImageFileName: saved.storedFileName,
@@ -411,12 +411,12 @@ router.post("/api/catalog/songs/:entryId/cover", requireAuth, requireAdmin, cove
   }
 });
 
-router.get("/api/catalog/songs/:entryId/cover", requireAuth, requireAdmin, (req, res) => {
-  const song = findSongByEntryId(req.params.entryId);
+router.get("/api/catalog/songs/:entryId/cover", requireAuth, requireAdmin, async (req, res) => {
+  const song = await findSongByEntryId(req.params.entryId);
   if (!song || !song.cover_image_file_name) {
     return res.status(404).json({ error: "Cover image not found." });
   }
-  const streamInfo = createSongCoverReadStream(env.beatStorageDir, song.cover_image_file_name);
+  const streamInfo = await createSongCoverReadStream(env.beatStorageDir, song.cover_image_file_name);
   if (!streamInfo) {
     return res.status(404).json({ error: "Cover image not found." });
   }
@@ -425,8 +425,8 @@ router.get("/api/catalog/songs/:entryId/cover", requireAuth, requireAdmin, (req,
   streamInfo.stream.pipe(res);
 });
 
-router.get("/api/control-defaults", requireAuth, requireAdmin, (_req, res) => {
-  return res.json(getGameControlDefaults());
+router.get("/api/control-defaults", requireAuth, requireAdmin, async (_req, res) => {
+  return res.json(await getGameControlDefaults());
 });
 
 router.put("/api/catalog/songs/:entryId", requireAuth, requireAdmin, async (req, res) => {
@@ -445,7 +445,7 @@ router.put("/api/catalog/songs/:entryId", requireAuth, requireAdmin, async (req,
   const title = (titleRaw || defaultTitle).slice(0, 120);
   const isEnabled = Boolean(req.body?.isEnabled);
 
-  const song = upsertSongForEntry({
+  const song = await upsertSongForEntry({
     beatEntryId: entryId,
     title,
     isEnabled,
@@ -490,7 +490,7 @@ router.post("/api/catalog/previews/generate-missing", requireAuth, requireAdmin,
       if (!entryId) {
         continue;
       }
-      if (hasPreviewForEntry(env.beatStorageDir, entryId)) {
+      if (await hasPreviewForEntry(env.beatStorageDir, entryId)) {
         skippedExisting += 1;
         continue;
       }
@@ -531,7 +531,7 @@ router.post("/api/catalog/previews/generate-missing", requireAuth, requireAdmin,
 });
 
 router.get("/api/public/songs/enabled", async (req, res) => {
-  const enabledSongs = listEnabledSongs();
+  const enabledSongs = await listEnabledSongs();
   const songs: Array<{
     beatEntryId: string;
     title: string;
@@ -568,14 +568,14 @@ router.get("/api/public/songs/enabled", async (req, res) => {
 });
 
 router.get("/api/public/songs/:id/cover", async (req, res) => {
-  if (!isEntryEnabled(req.params.id)) {
+  if (!(await isEntryEnabled(req.params.id))) {
     return res.status(404).json({ error: "Song not found." });
   }
-  const song = findSongByEntryId(req.params.id);
+  const song = await findSongByEntryId(req.params.id);
   if (!song || !song.cover_image_file_name) {
     return res.status(404).json({ error: "Cover image not found." });
   }
-  const streamInfo = createSongCoverReadStream(env.beatStorageDir, song.cover_image_file_name);
+  const streamInfo = await createSongCoverReadStream(env.beatStorageDir, song.cover_image_file_name);
   if (!streamInfo) {
     return res.status(404).json({ error: "Cover image not found." });
   }
@@ -585,7 +585,7 @@ router.get("/api/public/songs/:id/cover", async (req, res) => {
 });
 
 router.get("/api/public/beats/:id", async (req, res) => {
-  if (!isEntryEnabled(req.params.id)) {
+  if (!(await isEntryEnabled(req.params.id))) {
     return res.status(404).json({ error: "Song not found." });
   }
   const entry = await readSavedBeatEntry(env.beatStorageDir, req.params.id);
@@ -596,14 +596,14 @@ router.get("/api/public/beats/:id", async (req, res) => {
 });
 
 router.get("/api/public/beats/:id/audio", async (req, res) => {
-  if (!isEntryEnabled(req.params.id)) {
+  if (!(await isEntryEnabled(req.params.id))) {
     return res.status(404).json({ error: "Song not found." });
   }
   const entry = await readSavedBeatEntry(env.beatStorageDir, req.params.id);
   if (!entry) {
     return res.status(404).json({ error: "Saved entry not found." });
   }
-  const streamInfo = createAudioReadStream(env.beatStorageDir, entry);
+  const streamInfo = await createAudioReadStream(env.beatStorageDir, entry);
   if (!streamInfo) {
     return res.status(404).json({ error: "Saved audio not found." });
   }
@@ -613,10 +613,10 @@ router.get("/api/public/beats/:id/audio", async (req, res) => {
 });
 
 router.get("/api/public/beats/:id/preview", async (req, res) => {
-  if (!isEntryEnabled(req.params.id)) {
+  if (!(await isEntryEnabled(req.params.id))) {
     return res.status(404).json({ error: "Song not found." });
   }
-  const preview = createPreviewReadStream(env.beatStorageDir, req.params.id);
+  const preview = await createPreviewReadStream(env.beatStorageDir, req.params.id);
   if (!preview) {
     return res.status(404).json({ error: "Preview audio not found." });
   }
@@ -626,7 +626,7 @@ router.get("/api/public/beats/:id/preview", async (req, res) => {
 });
 
 router.get("/api/public/analyze/:id/result", async (req, res) => {
-  if (!isEntryEnabled(req.params.id)) {
+  if (!(await isEntryEnabled(req.params.id))) {
     return res.status(404).json({ error: "Song not found." });
   }
   try {
@@ -638,21 +638,21 @@ router.get("/api/public/analyze/:id/result", async (req, res) => {
   }
 });
 
-router.get("/api/scores/song/:entryId", (req, res) => {
+router.get("/api/scores/song/:entryId", async (req, res) => {
   const gameMode = normalizeGameMode(req.query.gameMode);
   const difficulty = normalizeGameDifficulty(req.query.difficulty);
   return res.json({
-    leaderboard: listSongLeaderboard(req.params.entryId, gameMode, difficulty),
+    leaderboard: await listSongLeaderboard(req.params.entryId, gameMode, difficulty),
     gameMode,
     difficulty
   });
 });
 
-router.get("/api/scores/overall", (_req, res) => {
-  return res.json({ leaderboard: listOverallLeaderboard() });
+router.get("/api/scores/overall", async (_req, res) => {
+  return res.json({ leaderboard: await listOverallLeaderboard() });
 });
 
-router.post("/api/scores/song/:entryId", requireAuth, requireHolder, (req, res) => {
+router.post("/api/scores/song/:entryId", requireAuth, requireHolder, async (req, res) => {
   const validationError = validateSaveScorePayload(req.body);
   if (validationError) {
     return res.status(400).json({ error: validationError });
@@ -671,7 +671,7 @@ router.post("/api/scores/song/:entryId", requireAuth, requireHolder, (req, res) 
     miss?: number;
   };
 
-  const result = createScore({
+  const result = await createScore({
     beatEntryId: req.params.entryId,
     userId: req.session!.userId,
     gameMode: normalizeGameMode(body.gameMode),

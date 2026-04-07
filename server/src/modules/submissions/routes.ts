@@ -2,7 +2,7 @@ import path from "node:path";
 import multer from "multer";
 import { Router } from "express";
 import { createSubmissionSchema } from "@faceless/shared";
-import { db } from "../../db/sqlite.js";
+import { pool } from "../../db/postgres.js";
 import { createId } from "../../utils/crypto.js";
 import { env } from "../../config/env.js";
 import { requireAuth, requireHolder } from "../../middleware/auth.js";
@@ -17,14 +17,16 @@ const upload = multer({
   },
 });
 
-function getDraftSubmission(userId: string) {
-  return db
-    .prepare(`SELECT id, user_id FROM submissions WHERE user_id = ? AND status = 'draft' ORDER BY created_at DESC LIMIT 1`)
-    .get(userId) as { id: string; user_id: string } | undefined;
+async function getDraftSubmission(userId: string) {
+  const result = await pool.query<{ id: string; user_id: string }>(
+    `SELECT id, user_id FROM submissions WHERE user_id = $1 AND status = 'draft' ORDER BY created_at DESC LIMIT 1`,
+    [userId]
+  );
+  return result.rows[0];
 }
 
-function getOrCreateDraftSubmission(userId: string) {
-  const existingDraft = getDraftSubmission(userId);
+async function getOrCreateDraftSubmission(userId: string) {
+  const existingDraft = await getDraftSubmission(userId);
   if (existingDraft) {
     return existingDraft;
   }
@@ -33,22 +35,16 @@ function getOrCreateDraftSubmission(userId: string) {
   const now = new Date();
   const nextHour = new Date(now.getTime() + 60 * 60 * 1000);
 
-  db.prepare(
+  await pool.query(
     `INSERT INTO submissions (id, user_id, title, notes, desired_start, desired_end, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'draft')`
-  ).run(
-    submissionId,
-    userId,
-    "Draft submission",
-    null,
-    now.toISOString(),
-    nextHour.toISOString()
+     VALUES ($1, $2, $3, $4, $5, $6, 'draft')`,
+    [submissionId, userId, "Draft submission", null, now.toISOString(), nextHour.toISOString()]
   );
 
   return { id: submissionId, user_id: userId };
 }
 
-router.post("/", requireAuth, requireHolder, (req, res) => {
+router.post("/", requireAuth, requireHolder, async (req, res) => {
   const parsed = createSubmissionSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
@@ -79,42 +75,46 @@ router.post("/", requireAuth, requireHolder, (req, res) => {
     return res.status(400).json({ error: "Schedule requests must start on the hour" });
   }
 
-  const draft = getDraftSubmission(req.session!.userId);
+  const draft = await getDraftSubmission(req.session!.userId);
   if (!draft) {
     return res.status(400).json({ error: "Upload at least one asset before submitting" });
   }
 
-  const assetCount = db
-    .prepare(`SELECT COUNT(1) AS count FROM assets WHERE submission_id = ?`)
-    .get(draft.id) as { count: number };
+  const assetCountResult = await pool.query<{ count: string }>(
+    `SELECT COUNT(1) AS count FROM assets WHERE submission_id = $1`,
+    [draft.id]
+  );
 
-  if (assetCount.count < 1) {
+  if (Number(assetCountResult.rows[0]?.count ?? 0) < 1) {
     return res.status(400).json({ error: "Upload at least one asset before submitting" });
   }
 
-  db.prepare(
+  await pool.query(
     `UPDATE submissions
-     SET title = ?, notes = ?, desired_start = ?, desired_end = ?, status = 'pending', rejection_reason = NULL, updated_at = datetime('now')
-     WHERE id = ?`
-  ).run(title, notes ?? null, desiredStart, desiredEnd, draft.id);
+     SET title = $1, notes = $2, desired_start = $3, desired_end = $4, status = 'pending', rejection_reason = NULL, updated_at = now()
+     WHERE id = $5`,
+    [title, notes ?? null, desiredStart, desiredEnd, draft.id]
+  );
 
   return res.status(201).json({ submissionId: draft.id, status: "pending" });
 });
 
-router.get("/me", requireAuth, (req, res) => {
-  const rows = db
-    .prepare(`SELECT * FROM submissions WHERE user_id = ? AND status != 'draft' ORDER BY created_at DESC`)
-    .all(req.session!.userId);
-  return res.json({ submissions: rows });
+router.get("/me", requireAuth, async (req, res) => {
+  const result = await pool.query(`SELECT * FROM submissions WHERE user_id = $1 AND status != 'draft' ORDER BY created_at DESC`, [
+    req.session!.userId,
+  ]);
+  return res.json({ submissions: result.rows });
 });
 
 async function handleAssetUpload(req: any, res: any, submissionIdOverride?: string) {
   try {
     const draft = submissionIdOverride
-      ? (db
-          .prepare(`SELECT id, user_id FROM submissions WHERE id = ? LIMIT 1`)
-          .get(submissionIdOverride) as { id: string; user_id: string } | undefined)
-      : getOrCreateDraftSubmission(req.session!.userId);
+      ? (
+          await pool.query<{ id: string; user_id: string }>(`SELECT id, user_id FROM submissions WHERE id = $1 LIMIT 1`, [
+            submissionIdOverride,
+          ])
+        ).rows[0]
+      : await getOrCreateDraftSubmission(req.session!.userId);
 
     const assetType = String(req.body.assetType ?? "").trim();
 
@@ -150,11 +150,7 @@ async function handleAssetUpload(req: any, res: any, submissionIdOverride?: stri
 
     const ext = path.extname(req.file.originalname).toLowerCase();
     const assetId = createId();
-    const objectPath = buildObjectPath([
-      "submissions",
-      draft.id,
-      `${assetId}${ext || ""}`,
-    ]);
+    const objectPath = buildObjectPath(["submissions", draft.id, `${assetId}${ext || ""}`]);
 
     const uploadResult = await uploadBufferToBunny({
       buffer: req.file.buffer,
@@ -162,19 +158,20 @@ async function handleAssetUpload(req: any, res: any, submissionIdOverride?: stri
       objectPath,
     });
 
-    db.prepare(
+    await pool.query(
       `INSERT INTO assets (id, submission_id, uploader_user_id, asset_type, original_name, mime_type, size_bytes, bunny_object_path, bunny_public_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      assetId,
-      draft.id,
-      req.session!.userId,
-      normalizedAssetType,
-      req.file.originalname,
-      mime,
-      req.file.size,
-      uploadResult.objectPath,
-      uploadResult.publicUrl
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        assetId,
+        draft.id,
+        req.session!.userId,
+        normalizedAssetType,
+        req.file.originalname,
+        mime,
+        req.file.size,
+        uploadResult.objectPath,
+        uploadResult.publicUrl,
+      ]
     );
 
     return res.status(201).json({ submissionId: draft.id, assetId, publicUrl: uploadResult.publicUrl });
