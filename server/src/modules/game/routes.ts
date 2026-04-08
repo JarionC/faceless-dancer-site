@@ -305,6 +305,7 @@ router.post("/api/separate/:id/start", requireAuth, requireAdmin, async (req, re
   }
 
   try {
+    await hydratePreviewWorkerInput(req.params.id, entry);
     const worker = await callWorker("/separate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -387,6 +388,7 @@ router.post("/api/analyze/:id/start", requireAuth, requireAdmin, async (req, res
   }
 
   try {
+    await hydratePreviewWorkerInput(req.params.id, entry);
     const worker = await callWorker("/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
