@@ -1,7 +1,13 @@
 import { useEffect, useState } from "preact/hooks";
 import bs58 from "bs58";
 import { api } from "../lib/api";
-import { detectConnectedWalletPublicKey, getProvider, type SupportedWallet } from "../lib/walletConnection";
+import {
+  detectConnectedWalletPublicKey,
+  getPreferredWallet,
+  getProvider,
+  setPreferredWallet,
+  type SupportedWallet
+} from "../lib/walletConnection";
 
 interface Props {
   onVerified: (session: { authenticated: boolean; publicKey: string; isHolder: boolean; isAdmin: boolean }) => void;
@@ -16,7 +22,7 @@ const walletLabels: Record<SupportedWallet, string> = {
 
 export function WalletAuthCard({ onVerified }: Props) {
   const [status, setStatus] = useState("Disconnected");
-  const [wallet, setWallet] = useState<SupportedWallet>("phantom");
+  const [wallet, setWallet] = useState<SupportedWallet>(() => getPreferredWallet() ?? "phantom");
 
   useEffect(() => {
     const key = detectConnectedWalletPublicKey();
@@ -36,6 +42,7 @@ export function WalletAuthCard({ onVerified }: Props) {
     if (!publicKey) {
       throw new Error("Missing public key");
     }
+    setPreferredWallet(wallet);
 
     setStatus("Requesting nonce...");
     const noncePayload = await api.nonce(publicKey);
@@ -64,7 +71,14 @@ export function WalletAuthCard({ onVerified }: Props) {
       <p className="small">Supported wallets: Phantom, Solflare, Backpack, MetaMask (Solana).</p>
       <label>
         Wallet
-        <select value={wallet} onInput={(event) => setWallet((event.target as HTMLSelectElement).value as SupportedWallet)}>
+        <select
+          value={wallet}
+          onInput={(event) => {
+            const nextWallet = (event.target as HTMLSelectElement).value as SupportedWallet;
+            setWallet(nextWallet);
+            setPreferredWallet(nextWallet);
+          }}
+        >
           <option value="phantom">Phantom</option>
           <option value="solflare">Solflare</option>
           <option value="backpack">Backpack</option>

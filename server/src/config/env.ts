@@ -59,6 +59,11 @@ const envSchema = z.object({
   BEAT_SEPARATION_LOG_TAIL_LINES: z.coerce.number().int().positive().default(300),
   BEAT_PREVIEW_OFFSET_SECONDS: z.coerce.number().nonnegative().default(30),
   BEAT_PREVIEW_DURATION_SECONDS: z.coerce.number().positive().default(15),
+
+  DANCEOFF_REDIS_URL: z.string().default(""),
+  DANCEOFF_REDIS_USERNAME: z.string().default(""),
+  DANCEOFF_REDIS_PASSWORD: z.string().default(""),
+  DANCEOFF_REDIS_TLS: z.enum(["true", "false"]).default("false"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -88,4 +93,5 @@ export const env = {
     : path.resolve(process.cwd(), data.BEAT_LOCAL_CACHE_DIR),
   runMigrationsOnStart: data.RUN_MIGRATIONS_ON_START === "true",
   databaseSslRejectUnauthorized: data.DATABASE_SSL_REJECT_UNAUTHORIZED === "true",
+  danceOffRedisTls: data.DANCEOFF_REDIS_TLS === "true",
 };

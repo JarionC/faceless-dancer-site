@@ -655,6 +655,213 @@ label {
   margin-bottom: 0;
 }
 
+.danceoff-panel {
+  margin-top: 8px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(149, 178, 211, 0.24);
+  background:
+    radial-gradient(circle at 12% 10%, rgba(105, 198, 255, 0.18), transparent 34%),
+    linear-gradient(165deg, rgba(8, 15, 24, 0.96), rgba(6, 11, 18, 0.95));
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.45);
+  display: grid;
+  gap: 10px;
+}
+
+.danceoff-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.danceoff-panel__header h3 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.danceoff-panel__header button {
+  width: auto;
+  margin: 0;
+  min-width: 110px;
+}
+
+.danceoff-panel__display-name {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.danceoff-panel__display-name label {
+  display: grid;
+  gap: 4px;
+}
+
+.danceoff-panel__display-name input {
+  margin: 0;
+}
+
+.danceoff-panel__display-name button {
+  width: auto;
+  margin: 0;
+  min-width: 108px;
+}
+
+.danceoff-panel__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.danceoff-panel__sections {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  min-height: 0;
+}
+
+.danceoff-section {
+  border: 1px solid rgba(149, 178, 211, 0.18);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(7, 14, 23, 0.55);
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+}
+
+.danceoff-section h4 {
+  margin: 0;
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(226, 239, 255, 0.9);
+}
+
+.danceoff-panel__list {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.danceoff-user {
+  border: 1px solid rgba(149, 178, 211, 0.16);
+  border-radius: 12px;
+  background: rgba(10, 19, 31, 0.64);
+  padding: 10px 12px;
+}
+
+.danceoff-user.self {
+  border-color: rgba(124, 242, 191, 0.45);
+}
+
+.danceoff-user__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.danceoff-user__title-row strong {
+  font-size: 0.92rem;
+  letter-spacing: 0.02em;
+}
+
+.danceoff-user p {
+  margin: 6px 0 0;
+}
+
+.danceoff-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.danceoff-actions-row button {
+  width: auto;
+  margin: 0;
+}
+
+.danceoff-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  padding: 18px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  background: rgba(3, 8, 14, 0.78);
+}
+
+.danceoff-modal__card {
+  width: min(560px, calc(100vw - 36px));
+  display: grid;
+}
+
+.danceoff-modal__card > h3,
+.danceoff-modal__card > p,
+.danceoff-modal__card > label,
+.danceoff-modal__card > .danceoff-actions-row,
+.danceoff-modal__card > .danceoff-results-list,
+.danceoff-modal__card > button {
+  width: min(560px, calc(100vw - 36px));
+}
+
+.danceoff-modal__card > h3 {
+  margin: 0;
+  padding: 14px 16px 0;
+  border-radius: 14px 14px 0 0;
+  border: 1px solid rgba(149, 178, 211, 0.24);
+  border-bottom: 0;
+  background:
+    radial-gradient(circle at 14% 0%, rgba(105, 198, 255, 0.18), transparent 45%),
+    linear-gradient(175deg, rgba(8, 16, 26, 0.96), rgba(5, 10, 16, 0.96));
+}
+
+.danceoff-modal__card > p,
+.danceoff-modal__card > label,
+.danceoff-modal__card > .danceoff-actions-row,
+.danceoff-modal__card > .danceoff-results-list,
+.danceoff-modal__card > button {
+  margin: 0;
+  padding: 0 16px 12px;
+  border-left: 1px solid rgba(149, 178, 211, 0.24);
+  border-right: 1px solid rgba(149, 178, 211, 0.24);
+  background:
+    radial-gradient(circle at 14% 0%, rgba(105, 198, 255, 0.18), transparent 45%),
+    linear-gradient(175deg, rgba(8, 16, 26, 0.96), rgba(5, 10, 16, 0.96));
+}
+
+.danceoff-modal__card > button:last-child,
+.danceoff-modal__card > .danceoff-actions-row:last-child {
+  border-bottom: 1px solid rgba(149, 178, 211, 0.24);
+  border-radius: 0 0 14px 14px;
+  padding-bottom: 14px;
+}
+
+.danceoff-modal label {
+  display: grid;
+  gap: 6px;
+}
+
+.danceoff-modal input {
+  margin: 0;
+}
+
+.danceoff-results-list {
+  display: grid;
+  gap: 5px;
+  max-height: 220px;
+  overflow: auto;
+}
+
 .game-view-shell {
   height: 100%;
   max-width: 1380px;
@@ -1764,6 +1971,19 @@ label {
   margin: 0;
 }
 
+.game-results-details {
+  max-height: 180px;
+  overflow: auto;
+  padding-right: 4px;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+}
+
+.game-results-details p {
+  margin: 0;
+}
+
 .game-mode-active,
 .game-mode-active * {
   -webkit-user-select: none;
@@ -2185,6 +2405,14 @@ label {
     margin: 0 0 10px;
   }
 
+  .danceoff-panel {
+    box-shadow: none;
+  }
+
+  .danceoff-panel__sections {
+    grid-template-columns: 1fr;
+  }
+
   .game-view-shell {
     height: auto;
     min-height: 100vh;
@@ -2392,6 +2620,50 @@ label {
 
   .game-menu-actions button {
     flex: 1 1 100%;
+  }
+
+  .danceoff-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    border-radius: 0;
+    border: 0;
+    margin: 0;
+    padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px calc(env(safe-area-inset-bottom, 0px) + 14px);
+    max-height: 100vh;
+    box-shadow: none;
+    background:
+      radial-gradient(circle at 20% 8%, rgba(105, 198, 255, 0.18), transparent 36%),
+      linear-gradient(180deg, rgba(4, 9, 14, 0.98), rgba(4, 9, 14, 0.99));
+  }
+
+  .danceoff-panel__display-name {
+    grid-template-columns: 1fr;
+  }
+
+  .danceoff-panel__display-name button,
+  .danceoff-panel__header button {
+    width: 100%;
+  }
+
+  .danceoff-panel__list {
+    max-height: none;
+    overflow: auto;
+  }
+
+  .danceoff-modal {
+    padding: calc(env(safe-area-inset-top, 0px) + 12px) 12px calc(env(safe-area-inset-bottom, 0px) + 12px);
+    align-content: end;
+  }
+
+  .danceoff-modal__card,
+  .danceoff-modal__card > h3,
+  .danceoff-modal__card > p,
+  .danceoff-modal__card > label,
+  .danceoff-modal__card > .danceoff-actions-row,
+  .danceoff-modal__card > .danceoff-results-list,
+  .danceoff-modal__card > button {
+    width: min(640px, calc(100vw - 24px));
   }
 
   .ddr-note {

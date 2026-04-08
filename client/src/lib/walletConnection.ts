@@ -1,4 +1,5 @@
 export type SupportedWallet = "phantom" | "solflare" | "backpack" | "metamask";
+const PREFERRED_WALLET_STORAGE_KEY = "faceless_preferred_wallet";
 
 export interface SolanaProvider {
   isPhantom?: boolean;
@@ -9,6 +10,18 @@ export interface SolanaProvider {
   publicKey?: { toString(): string };
   connect: (options?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey?: { toString(): string } }>;
   signMessage: (message: Uint8Array, display?: string) => Promise<{ signature: Uint8Array }>;
+}
+
+export function setPreferredWallet(wallet: SupportedWallet): void {
+  window.localStorage.setItem(PREFERRED_WALLET_STORAGE_KEY, wallet);
+}
+
+export function getPreferredWallet(): SupportedWallet | null {
+  const raw = String(window.localStorage.getItem(PREFERRED_WALLET_STORAGE_KEY) ?? "").trim();
+  if (raw === "phantom" || raw === "solflare" || raw === "backpack" || raw === "metamask") {
+    return raw;
+  }
+  return null;
 }
 
 export function getInjectedProviders(): SolanaProvider[] {
@@ -56,7 +69,13 @@ export async function refreshWalletConnectionStatus(): Promise<string> {
     return existingKey;
   }
 
-  const providers = getInjectedProviders();
+  const preferredWallet = getPreferredWallet();
+  const preferredProvider = preferredWallet ? getProvider(preferredWallet) : undefined;
+  const providers = [
+    ...(preferredProvider ? [preferredProvider] : []),
+    ...getInjectedProviders().filter((provider) => provider !== preferredProvider),
+  ];
+
   for (const provider of providers) {
     try {
       await provider.connect({ onlyIfTrusted: true });
@@ -71,4 +90,3 @@ export async function refreshWalletConnectionStatus(): Promise<string> {
 
   return "";
 }
-

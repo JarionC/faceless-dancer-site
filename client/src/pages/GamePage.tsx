@@ -4,6 +4,7 @@ import { runtimeConfig } from "../game/config/runtime";
 import type { SessionState } from "../hooks/useSession";
 import { WalletAuthCard } from "../components/WalletAuthCard";
 import { refreshWalletConnectionStatus } from "../lib/walletConnection";
+import { DanceOffPresencePanel } from "../game/components/DanceOffPresencePanel";
 
 interface Props {
   session: SessionState;
@@ -13,6 +14,7 @@ interface Props {
 
 export function GamePage({ session, setSession, refreshSession }: Props): JSX.Element {
   const [showWalletPanel, setShowWalletPanel] = useState(false);
+  const [showDanceOffPanel, setShowDanceOffPanel] = useState(false);
   const [gameMode, setGameMode] = useState<"menu" | "play" | "scores">("menu");
   const [walletPublicKey, setWalletPublicKey] = useState("");
 
@@ -43,6 +45,28 @@ export function GamePage({ session, setSession, refreshSession }: Props): JSX.El
     };
   }, []);
 
+  useEffect(() => {
+    if (session.authenticated && session.publicKey) {
+      setWalletPublicKey(session.publicKey);
+    }
+  }, [session.authenticated, session.publicKey]);
+
+  useEffect(() => {
+    if (gameMode === "play") {
+      setShowDanceOffPanel(false);
+    }
+  }, [gameMode]);
+
+  useEffect(() => {
+    const onOpenDanceOffPanel = () => {
+      setShowDanceOffPanel(true);
+    };
+    window.addEventListener("danceoff:panel:open", onOpenDanceOffPanel);
+    return () => {
+      window.removeEventListener("danceoff:panel:open", onOpenDanceOffPanel);
+    };
+  }, []);
+
   const isWalletConnected = walletPublicKey.length > 0;
   const walletButtonLabel = isWalletConnected ? "Wallet Connected" : "Wallet Disconnected";
 
@@ -60,6 +84,13 @@ export function GamePage({ session, setSession, refreshSession }: Props): JSX.El
           >
             {showWalletPanel ? "Close Wallet" : walletButtonLabel}
           </button>
+          <button
+            type="button"
+            className="secondary badge ok"
+            onClick={() => setShowDanceOffPanel((prev) => !prev)}
+          >
+            {showDanceOffPanel ? "Close Dance-Off" : "Dance-Off Online"}
+          </button>
         </div>
         {showWalletPanel ? (
           <WalletAuthCard
@@ -71,6 +102,12 @@ export function GamePage({ session, setSession, refreshSession }: Props): JSX.El
             }}
           />
         ) : null}
+        <DanceOffPresencePanel
+          open={showDanceOffPanel}
+          session={session}
+          apiBaseUrl={runtimeConfig.beatApiBaseUrl}
+          onClose={() => setShowDanceOffPanel(false)}
+        />
       </section>
       <GameView
         apiBaseUrl={runtimeConfig.beatApiBaseUrl}

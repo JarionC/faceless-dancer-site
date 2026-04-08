@@ -30,6 +30,19 @@ export async function runMigrations() {
       )
     `);
 
+    // Repair sequence drift (common after logical imports that copy explicit ids).
+    // Without this, INSERT can reuse an existing id and crash startup.
+    const sequenceResult = await client.query<{ seq: string | null }>(
+      `SELECT pg_get_serial_sequence('migrations', 'id') AS seq`
+    );
+    const sequenceName = sequenceResult.rows[0]?.seq ?? null;
+    if (sequenceName) {
+      await client.query(
+        `SELECT setval($1::regclass, COALESCE((SELECT MAX(id) FROM migrations), 0) + 1, false)`,
+        [sequenceName]
+      );
+    }
+
     const appliedRows = await client.query<{ name: string }>("SELECT name FROM migrations");
     const applied = new Set(appliedRows.rows.map((row: { name: string }) => row.name));
 

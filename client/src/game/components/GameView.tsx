@@ -59,6 +59,35 @@ interface OverallLeaderboardRow {
   songsCount: number;
 }
 
+interface DanceOffMatchPayload {
+  id: string;
+  beatEntryId: string;
+  gameMode: GameMode;
+  difficulty: GameDifficulty;
+}
+
+interface DanceOffParticipantSummary {
+  userId: string;
+  publicKey: string;
+  displayName: string | null;
+  finalScore: number | null;
+  finalAccuracy: number | null;
+}
+
+interface DanceOffCompletionPayload {
+  id: string;
+  winnerUserId: string | null;
+  isDraw: boolean;
+  cancelReason: string | null;
+  participants: DanceOffParticipantSummary[];
+}
+
+interface DanceOffLinkStatePayload {
+  linked: boolean;
+  danceOffId: string | null;
+  status: "waiting" | "ready_check" | "countdown" | "active" | "completed" | "cancelled" | null;
+}
+
 type ViewMode = "menu" | "play" | "scores";
 type PlayPhase = "idle" | "countdown" | "running" | "finished";
 type Judgement = "perfect" | "great" | "good" | "poor" | "miss";
@@ -139,6 +168,15 @@ function holderName(publicKey: string | undefined): string {
   return key.length >= 10 ? `${key.slice(0, 4)}...${key.slice(-4)}` : "Holder";
 }
 
+function danceOffParticipantLabel(participant: DanceOffParticipantSummary): string {
+  const displayName = String(participant.displayName ?? "").trim();
+  if (displayName) {
+    return displayName;
+  }
+  const key = String(participant.publicKey ?? "").trim();
+  return key.length >= 10 ? `${key.slice(0, 6)}...${key.slice(-4)}` : key || "Unknown";
+}
+
 function estimateBeatSeconds(notes: GameNoteState[]): number {
   if (notes.length < 2) return 0.5;
   const sorted = [...notes].sort((a, b) => a.timeSeconds - b.timeSeconds);
@@ -189,10 +227,17 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
   const runStartedRef = useRef(false);
   const endSignaledRef = useRef(false);
   const previousTimeRef = useRef(0);
+  const activeDanceOffIdRef = useRef<string | null>(null);
 
   const [mode, setMode] = useState<ViewMode>("menu");
   const [phase, setPhase] = useState<PlayPhase>("idle");
   const [countdownBeats, setCountdownBeats] = useState(0);
+  const [activeDanceOffId, setActiveDanceOffId] = useState<string | null>(null);
+  const [linkedDanceOffState, setLinkedDanceOffState] = useState<DanceOffLinkStatePayload>({
+    linked: false,
+    danceOffId: null,
+    status: null,
+  });
 
   const [songs, setSongs] = useState<EnabledSongSummary[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -221,7 +266,15 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
   const [overallLeaderboard, setOverallLeaderboard] = useState<OverallLeaderboardRow[]>([]);
   const [holdBonusPoints, setHoldBonusPoints] = useState(0);
   const [chartRevision, setChartRevision] = useState(0);
-  const [resultsModal, setResultsModal] = useState<{ visible: boolean; score: number; percentage: number; rank: number | null; message: string }>({ visible: false, score: 0, percentage: 0, rank: null, message: "" });
+  const [resultsModal, setResultsModal] = useState<{
+    visible: boolean;
+    score: number;
+    percentage: number;
+    rank: number | null;
+    message: string;
+    canExit: boolean;
+    details: string[];
+  }>({ visible: false, score: 0, percentage: 0, rank: null, message: "", canExit: true, details: [] });
   const windows = useMemo(() => {
     const perfect = runtimeConfig.gamePerfectWindowSeconds;
     const great = Math.max(perfect, runtimeConfig.gameGreatWindowSeconds);
@@ -239,6 +292,18 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     const life = 50 + score.perfect * 2 + score.great * 1 + score.good * 0.35 - score.poor * 1.5 - score.miss * 3;
     return Math.max(0, Math.min(100, life));
   }, [score]);
+
+  const isBlockedByLinkedDanceOff = useMemo(() => {
+    if (!linkedDanceOffState.linked) {
+      return false;
+    }
+    return (
+      linkedDanceOffState.status === "waiting" ||
+      linkedDanceOffState.status === "ready_check" ||
+      linkedDanceOffState.status === "countdown" ||
+      linkedDanceOffState.status === "active"
+    );
+  }, [linkedDanceOffState]);
 
   const stopLoop = (): void => {
     if (loopRef.current !== null) {
@@ -775,7 +840,11 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     }
   };
 
-  const loadSelectedEntry = async (entryId: string): Promise<{ entry: SavedBeatEntry; analysisMajorBeats: Array<{ timeSeconds: number; strength: number }> | null } | null> => {
+  const loadSelectedEntry = async (
+    entryId: string,
+    gameModeOverride?: GameMode,
+    difficultyOverride?: GameDifficulty
+  ): Promise<{ entry: SavedBeatEntry; analysisMajorBeats: Array<{ timeSeconds: number; strength: number }> | null } | null> => {
     const engine = engineRef.current;
     if (!engine) return null;
     setLoadingEntry(true);
@@ -804,7 +873,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
         loadedAnalysis = null;
         setAnalysisMajorBeats(null);
       }
-      await loadLeaderboards(entryId, selectedGameMode, selectedDifficulty);
+      await loadLeaderboards(entryId, gameModeOverride ?? selectedGameMode, difficultyOverride ?? selectedDifficulty);
       return { entry: detail.entry, analysisMajorBeats: loadedAnalysis };
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load selected song.");
@@ -821,6 +890,31 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     const totalNotes = Math.max(1, notesRef.current.length);
     const weighted = score.perfect + score.great * 0.75 + score.good * 0.5 + score.poor * 0.25;
     const percentage = Math.max(0, Math.min(100, (weighted / totalNotes) * 100));
+    const activeDanceOffId = activeDanceOffIdRef.current;
+
+    if (activeDanceOffId) {
+      setPhase("finished");
+      setResultsModal({
+        visible: true,
+        score: totalScore,
+        percentage,
+        rank: null,
+        message: "Dance-Off result submitted. Waiting for all players to finish.",
+        canExit: false,
+        details: [],
+      });
+      window.dispatchEvent(
+        new CustomEvent("danceoff:match-result", {
+          detail: {
+            danceOffId: activeDanceOffId,
+            score: totalScore,
+            accuracy: percentage,
+          },
+        })
+      );
+      return;
+    }
+
     let rank: number | null = null;
     let message = "";
 
@@ -856,7 +950,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     }
 
     setPhase("finished");
-    setResultsModal({ visible: true, score: totalScore, percentage, rank, message });
+    setResultsModal({ visible: true, score: totalScore, percentage, rank, message, canExit: true, details: [] });
   };
 
   const startAfterCountdown = async (): Promise<void> => {
@@ -879,23 +973,20 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     }
   };
 
-  const startGame = async (): Promise<void> => {
-    if (!selectedId) return;
-    try {
-      await engineRef.current?.unlock();
-    } catch {
-      // Ignore unlock failures; playback attempt below will surface any issues.
-    }
-    const loaded = await loadSelectedEntry(selectedId);
-    if (!loaded) return;
+  const beginRun = (
+    loadedEntry: SavedBeatEntry,
+    loadedAnalysis: Array<{ timeSeconds: number; strength: number }> | null,
+    gameMode: GameMode,
+    difficulty: GameDifficulty
+  ): void => {
     forfeitedRef.current = false;
     finalizedRef.current = false;
     runStartedRef.current = false;
     endSignaledRef.current = false;
     previousTimeRef.current = 0;
     setSongEndedSignal(0);
-    setResultsModal({ visible: false, score: 0, percentage: 0, rank: null, message: "" });
-    rebuildChart(loaded.entry, loaded.analysisMajorBeats, selectedGameMode, selectedDifficulty);
+    setResultsModal({ visible: false, score: 0, percentage: 0, rank: null, message: "", canExit: true, details: [] });
+    rebuildChart(loadedEntry, loadedAnalysis, gameMode, difficulty);
     let beatsLeft = 3;
     const beatSeconds = estimateBeatSeconds(notesRef.current);
     stopCountdown();
@@ -916,11 +1007,67 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     }, Math.round(beatSeconds * 1000));
   };
 
+  const startSoloGame = async (): Promise<void> => {
+    if (isBlockedByLinkedDanceOff) {
+      setError("You are already linked to a Dance-Off. Wait for it to finish or leave/cancel it first.");
+      return;
+    }
+    if (!selectedId) {
+      return;
+    }
+    try {
+      await engineRef.current?.unlock();
+    } catch {
+      // Ignore unlock failures; playback attempt below will surface any issues.
+    }
+    const loaded = await loadSelectedEntry(selectedId);
+    if (!loaded) return;
+    activeDanceOffIdRef.current = null;
+    setActiveDanceOffId(null);
+    beginRun(loaded.entry, loaded.analysisMajorBeats, selectedGameMode, selectedDifficulty);
+  };
+
+  const startDanceOffMatch = async (payload: DanceOffMatchPayload): Promise<void> => {
+    if (
+      activeDanceOffIdRef.current === payload.id &&
+      mode === "play" &&
+      (phase === "countdown" || phase === "running")
+    ) {
+      return;
+    }
+    const matchSongId = String(payload.beatEntryId || "").trim();
+    if (!matchSongId) {
+      return;
+    }
+    try {
+      await engineRef.current?.unlock();
+    } catch {
+      // Browser policies can still block audio; startAfterCountdown handles final failure.
+    }
+    setSelectedGameMode(payload.gameMode);
+    setSelectedDifficulty(payload.difficulty);
+    setSelectedId(matchSongId);
+    const loaded = await loadSelectedEntry(matchSongId, payload.gameMode, payload.difficulty);
+    if (!loaded) {
+      setError("Failed to load Dance-Off song.");
+      return;
+    }
+    activeDanceOffIdRef.current = payload.id;
+    setActiveDanceOffId(payload.id);
+    beginRun(loaded.entry, loaded.analysisMajorBeats, payload.gameMode, payload.difficulty);
+  };
+
   const goToMenu = (): void => {
+    const activeDanceOffId = activeDanceOffIdRef.current;
+    if (activeDanceOffId && phase === "running" && !finalizedRef.current) {
+      window.dispatchEvent(new CustomEvent("danceoff:match-abort", { detail: { danceOffId: activeDanceOffId } }));
+    }
     forfeitedRef.current = true;
     finalizedRef.current = true;
     runStartedRef.current = false;
     endSignaledRef.current = false;
+    activeDanceOffIdRef.current = null;
+    setActiveDanceOffId(null);
     const engine = engineRef.current;
     if (engine) {
       engine.pause();
@@ -933,7 +1080,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     previousTimeRef.current = 0;
     setSongEndedSignal(0);
     setPhase("idle");
-    setResultsModal({ visible: false, score: 0, percentage: 0, rank: null, message: "" });
+    setResultsModal({ visible: false, score: 0, percentage: 0, rank: null, message: "", canExit: true, details: [] });
     setMode("menu");
   };
 
@@ -1039,6 +1186,101 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
   useEffect(() => {
     onModeChange?.(mode);
   }, [mode, onModeChange]);
+
+  useEffect(() => {
+    const onDanceOffLinkState = (event: Event): void => {
+      const detail = (event as CustomEvent<DanceOffLinkStatePayload>).detail;
+      setLinkedDanceOffState({
+        linked: Boolean(detail?.linked),
+        danceOffId: detail?.danceOffId ?? null,
+        status: detail?.status ?? null,
+      });
+    };
+    window.addEventListener("danceoff:self-link-state", onDanceOffLinkState as EventListener);
+    return () => {
+      window.removeEventListener("danceoff:self-link-state", onDanceOffLinkState as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onMatchStart = (event: Event): void => {
+      const detail = (event as CustomEvent<DanceOffMatchPayload>).detail;
+      if (!detail?.id || !detail?.beatEntryId) {
+        return;
+      }
+      void startDanceOffMatch({
+        id: detail.id,
+        beatEntryId: detail.beatEntryId,
+        gameMode: detail.gameMode === "orb_beat" ? "orb_beat" : "step_arrows",
+        difficulty: detail.difficulty === "easy" || detail.difficulty === "hard" ? detail.difficulty : "normal",
+      });
+    };
+
+    const onMatchCancelled = (event: Event): void => {
+      const detail = (event as CustomEvent<{ danceOffId?: string; message?: string; danceOff?: DanceOffCompletionPayload }>).detail;
+      if (!detail?.danceOffId || activeDanceOffIdRef.current !== detail.danceOffId) {
+        return;
+      }
+      const engine = engineRef.current;
+      if (engine) {
+        engine.pause();
+      }
+      stopLoop();
+      stopCountdown();
+      setPlaying(false);
+      setPhase("finished");
+      const cancelMessage = detail.message || "Dance-Off was cancelled.";
+      setResultsModal((current) => ({
+        ...current,
+        visible: true,
+        canExit: true,
+        message: cancelMessage,
+      }));
+      activeDanceOffIdRef.current = null;
+      setActiveDanceOffId(null);
+    };
+
+    const onMatchCompleted = (event: Event): void => {
+      const detail = (event as CustomEvent<{ danceOffId?: string; danceOff?: DanceOffCompletionPayload }>).detail;
+      if (!detail?.danceOffId || activeDanceOffIdRef.current !== detail.danceOffId) {
+        return;
+      }
+      const completedDanceOff = detail.danceOff;
+      const sortedParticipants = [...(completedDanceOff?.participants ?? [])].sort(
+        (a, b) => (b.finalScore ?? 0) - (a.finalScore ?? 0)
+      );
+      const details = sortedParticipants.map((participant) => {
+        const scoreValue = participant.finalScore ?? 0;
+        const accuracyValue = participant.finalAccuracy ?? 0;
+        return `${danceOffParticipantLabel(participant)}: ${scoreValue} (${accuracyValue.toFixed(2)}%)`;
+      });
+      const winner = completedDanceOff?.participants.find((participant) => participant.userId === completedDanceOff.winnerUserId);
+      const summaryMessage = completedDanceOff?.isDraw
+        ? "Dance-Off result: Draw"
+        : winner
+          ? `Winner: ${danceOffParticipantLabel(winner)}`
+          : "Dance-Off complete";
+      setResultsModal((current) => ({
+        ...current,
+        visible: true,
+        canExit: true,
+        message: summaryMessage,
+        details,
+      }));
+      setPhase("finished");
+      activeDanceOffIdRef.current = null;
+      setActiveDanceOffId(null);
+    };
+
+    window.addEventListener("danceoff:match-start", onMatchStart as EventListener);
+    window.addEventListener("danceoff:match-cancelled", onMatchCancelled as EventListener);
+    window.addEventListener("danceoff:match-completed", onMatchCompleted as EventListener);
+    return () => {
+      window.removeEventListener("danceoff:match-start", onMatchStart as EventListener);
+      window.removeEventListener("danceoff:match-cancelled", onMatchCancelled as EventListener);
+      window.removeEventListener("danceoff:match-completed", onMatchCompleted as EventListener);
+    };
+  }, [mode, phase]);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -1343,6 +1585,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
                 <button
                   type="button"
                   disabled={
+                    isBlockedByLinkedDanceOff ||
                     !selectedId ||
                     loadingEntry ||
                     ((selectedSongSummary?.modeDifficultyBeatCounts?.[selectedGameMode]?.[selectedDifficulty] ?? 0) <= 0 &&
@@ -1352,12 +1595,44 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
                         (selectedSongSummary?.majorBeatCount ?? 0) > 0
                       ))
                   }
-                  onClick={() => startGame()}
+                  onClick={() => startSoloGame()}
                 >
                   {loadingEntry ? "Loading Song..." : "Start Game"}
                 </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={
+                    isBlockedByLinkedDanceOff ||
+                    !selectedId ||
+                    loadingEntry ||
+                    ((selectedSongSummary?.modeDifficultyBeatCounts?.[selectedGameMode]?.[selectedDifficulty] ?? 0) <= 0 &&
+                      !(
+                        selectedGameMode === "step_arrows" &&
+                        selectedDifficulty === "normal" &&
+                        (selectedSongSummary?.majorBeatCount ?? 0) > 0
+                      ))
+                  }
+                  onClick={() => {
+                    window.dispatchEvent(
+                      new CustomEvent("danceoff:create-request", {
+                        detail: {
+                          beatEntryId: selectedId,
+                          gameMode: selectedGameMode,
+                          difficulty: selectedDifficulty,
+                        },
+                      })
+                    );
+                    window.dispatchEvent(new CustomEvent("danceoff:panel:open"));
+                  }}
+                >
+                  Dance-Off (PVP)
+                </button>
                 <button type="button" className="secondary" disabled={!selectedId} onClick={() => setMode("scores")}>View High Scores</button>
               </div>
+              {isBlockedByLinkedDanceOff ? (
+                <p className="small game-menu-meta">You are already linked to a Dance-Off. Leave/cancel or finish it before starting another song.</p>
+              ) : null}
             </aside>
           </div>
           {error ? <p className="error">{error}</p> : null}
@@ -1413,7 +1688,15 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
               </div>
               <div className="game-play-subtitle">{formatGameModeLabel(selectedGameMode)} | {selectedDifficulty}</div>
             </div>
-            <div className="game-top-status">{phase === "finished" ? "Complete" : phase === "running" ? "Live" : ""}</div>
+            <div className="game-top-status">
+              {phase === "finished"
+                ? "Complete"
+                : phase === "running"
+                  ? activeDanceOffId
+                    ? "Dance-Off Live"
+                    : "Live"
+                  : ""}
+            </div>
           </div>
           <div className="game-play-hud">
             <div className="ddr-life"><span>LIFE</span><div className="ddr-life-bar"><div className="ddr-life-fill" style={{ width: `${lifePercent}%` }} /></div></div>
@@ -1535,7 +1818,14 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
               <p className="result-line">Accuracy: <strong className="game-score-number">{resultsModal.percentage.toFixed(2)}%</strong></p>
               {canSubmitHolderScore && resultsModal.rank ? <p className="result-line">Rank: <strong className="game-score-number">#{resultsModal.rank}</strong></p> : null}
               <p className="small">{resultsModal.message}</p>
-              <button type="button" onClick={() => goToMenu()}>Back To Menu</button>
+              {resultsModal.details.length > 0 ? (
+                <div className="game-results-details">
+                  {resultsModal.details.map((line) => (
+                    <p key={line} className="small">{line}</p>
+                  ))}
+                </div>
+              ) : null}
+              {resultsModal.canExit ? <button type="button" onClick={() => goToMenu()}>Back To Menu</button> : null}
             </div>
           ) : null}
         </div>
