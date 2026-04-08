@@ -228,6 +228,8 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
   const endSignaledRef = useRef(false);
   const previousTimeRef = useRef(0);
   const activeDanceOffIdRef = useRef<string | null>(null);
+  const scoreRef = useRef<ScoreState>(createInitialScore());
+  const totalScoreRef = useRef(0);
 
   const [mode, setMode] = useState<ViewMode>("menu");
   const [phase, setPhase] = useState<PlayPhase>("idle");
@@ -440,6 +442,14 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
       setLoadingSongs(false);
     }
   };
+
+  useEffect(() => {
+    scoreRef.current = score;
+  }, [score]);
+
+  useEffect(() => {
+    totalScoreRef.current = totalScore;
+  }, [totalScore]);
 
   const clearMenuPreviewLoop = (): void => {
     if (menuPreviewLoopRef.current !== null) {
@@ -887,8 +897,10 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
   };
   const finalizeRun = async (): Promise<void> => {
     if (!selectedEntry || forfeitedRef.current) return;
+    const liveScore = scoreRef.current;
+    const liveTotalScore = totalScoreRef.current;
     const totalNotes = Math.max(1, notesRef.current.length);
-    const weighted = score.perfect + score.great * 0.75 + score.good * 0.5 + score.poor * 0.25;
+    const weighted = liveScore.perfect + liveScore.great * 0.75 + liveScore.good * 0.5 + liveScore.poor * 0.25;
     const percentage = Math.max(0, Math.min(100, (weighted / totalNotes) * 100));
     const activeDanceOffId = activeDanceOffIdRef.current;
 
@@ -896,7 +908,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
       setPhase("finished");
       setResultsModal({
         visible: true,
-        score: totalScore,
+        score: liveTotalScore,
         percentage,
         rank: null,
         message: "Dance-Off result submitted. Waiting for all players to finish.",
@@ -907,7 +919,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
         new CustomEvent("danceoff:match-result", {
           detail: {
             danceOffId: activeDanceOffId,
-            score: totalScore,
+            score: liveTotalScore,
             accuracy: percentage,
           },
         })
@@ -927,20 +939,20 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
             displayName: holderName(holderPublicKey),
             gameMode: selectedGameMode,
             difficulty: selectedDifficulty,
-            score: totalScore,
-            maxCombo: score.maxCombo,
-            perfect: score.perfect,
-            great: score.great,
-            good: score.good,
-            poor: score.poor,
-            miss: score.miss
+            score: liveTotalScore,
+            maxCombo: liveScore.maxCombo,
+            perfect: liveScore.perfect,
+            great: liveScore.great,
+            good: liveScore.good,
+            poor: liveScore.poor,
+            miss: liveScore.miss
           })
         });
         const latestSong = await fetchJson<{ leaderboard: SongLeaderboardRow[] }>(
           `${apiBaseUrl}/api/scores/song/${encodeURIComponent(selectedEntry.id)}?gameMode=${encodeURIComponent(selectedGameMode)}&difficulty=${encodeURIComponent(selectedDifficulty)}`
         );
         setSongLeaderboard(latestSong.leaderboard ?? []);
-        rank = (latestSong.leaderboard ?? []).filter((row) => row.score > totalScore).length + 1;
+        rank = (latestSong.leaderboard ?? []).filter((row) => row.score > liveTotalScore).length + 1;
         message = `Holder rank: #${rank}`;
       } catch {
         message = "Could not submit or rank this run.";
@@ -950,7 +962,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     }
 
     setPhase("finished");
-    setResultsModal({ visible: true, score: totalScore, percentage, rank, message, canExit: true, details: [] });
+    setResultsModal({ visible: true, score: liveTotalScore, percentage, rank, message, canExit: true, details: [] });
   };
 
   const startAfterCountdown = async (): Promise<void> => {
@@ -1246,6 +1258,21 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
         return;
       }
       const completedDanceOff = detail.danceOff;
+      const hasAllFinalResults =
+        Boolean(completedDanceOff) &&
+        (completedDanceOff?.participants?.length ?? 0) > 0 &&
+        completedDanceOff!.participants.every(
+          (participant) => participant.finalScore !== null && participant.finalAccuracy !== null
+        );
+      if (!hasAllFinalResults) {
+        setResultsModal((current) => ({
+          ...current,
+          visible: true,
+          canExit: false,
+          message: "Dance-Off result submitted. Waiting for all players to finish.",
+        }));
+        return;
+      }
       const sortedParticipants = [...(completedDanceOff?.participants ?? [])].sort(
         (a, b) => (b.finalScore ?? 0) - (a.finalScore ?? 0)
       );

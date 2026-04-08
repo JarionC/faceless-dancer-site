@@ -79,6 +79,7 @@ function findSelfParticipant(danceOff: DanceOffPayload, publicKey: string) {
 
 export function DanceOffPresencePanel({ open, session, apiBaseUrl, onClose }: DanceOffPresencePanelProps): JSX.Element | null {
   const socketRef = useRef<Socket | null>(null);
+  const completionRetryTimeoutRef = useRef<number | null>(null);
   const [users, setUsers] = useState<DanceOffOnlineUser[]>([]);
   const [danceOffs, setDanceOffs] = useState<DanceOffPayload[]>([]);
   const [songTitlesById, setSongTitlesById] = useState<Record<string, string>>({});
@@ -195,6 +196,15 @@ export function DanceOffPresencePanel({ open, session, apiBaseUrl, onClose }: Da
   }, []);
 
   useEffect(() => {
+    return () => {
+      if (completionRetryTimeoutRef.current !== null) {
+        window.clearTimeout(completionRetryTimeoutRef.current);
+        completionRetryTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!session.authenticated) {
       setConnectionStatus("idle");
       setUsers([]);
@@ -305,27 +315,48 @@ export function DanceOffPresencePanel({ open, session, apiBaseUrl, onClose }: Da
       window.dispatchEvent(new CustomEvent("danceoff:match-start", { detail: payload.danceOff }));
     };
 
+    const resolveCompletedPayload = (danceOffId: string, attempt = 0) => {
+      const socketClient = socketRef.current;
+      if (!socketClient) {
+        return;
+      }
+      if (completionRetryTimeoutRef.current !== null) {
+        window.clearTimeout(completionRetryTimeoutRef.current);
+        completionRetryTimeoutRef.current = null;
+      }
+      socketClient.emit("danceoff:get", { danceOffId }, (response: SocketActionResponse) => {
+        const resolved = response?.danceOff;
+        const participants = resolved?.participants ?? [];
+        const isComplete =
+          resolved?.status === "completed" &&
+          participants.length > 0 &&
+          participants.every((participant) => participant.joinStatus === "finished" && participant.finalScore !== null && participant.finalAccuracy !== null);
+        if (isComplete && resolved) {
+          window.dispatchEvent(
+            new CustomEvent("danceoff:match-completed", {
+              detail: { danceOffId: resolved.id, danceOff: resolved },
+            })
+          );
+          return;
+        }
+        if (attempt >= 12) {
+          return;
+        }
+        completionRetryTimeoutRef.current = window.setTimeout(() => resolveCompletedPayload(danceOffId, attempt + 1), 500);
+      });
+    };
+
     const onMatchCompleted = (payload: { danceOff?: DanceOffPayload }) => {
       if (!payload?.danceOff) {
         return;
       }
-      setLifecycleModal({ type: "completed", danceOff: payload.danceOff });
-      window.dispatchEvent(
-        new CustomEvent("danceoff:match-completed", {
-          detail: { danceOffId: payload.danceOff.id, danceOff: payload.danceOff },
-        })
-      );
+      resolveCompletedPayload(payload.danceOff.id);
     };
 
     const onMatchCancelled = (payload: { danceOff?: DanceOffPayload }) => {
       if (!payload?.danceOff) {
         return;
       }
-      setLifecycleModal({
-        type: "cancelled",
-        danceOff: payload.danceOff,
-        message: payload.danceOff.cancelReason ?? "Dance-Off was cancelled.",
-      });
       window.dispatchEvent(
         new CustomEvent("danceoff:match-cancelled", {
           detail: {

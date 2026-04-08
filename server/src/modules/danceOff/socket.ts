@@ -290,6 +290,25 @@ export async function createDanceOffSocketServer(httpServer: HttpServer): Promis
     });
 
     socket.on(
+      "danceoff:get",
+      async (payload: { danceOffId?: string } | null | undefined, callback?: (response: Record<string, unknown>) => void) => {
+        try {
+          const danceOffId = String(payload?.danceOffId ?? "").trim();
+          if (!danceOffId) {
+            throw new Error("danceOffId is required.");
+          }
+          const danceOff = await getDanceOffPayloadById(danceOffId);
+          if (!danceOff) {
+            throw new Error("Dance-Off not found.");
+          }
+          callback?.({ ok: true, danceOff });
+        } catch (error) {
+          handleActionError(callback, error);
+        }
+      }
+    );
+
+    socket.on(
       "danceoff:create",
       async (
         payload: {
