@@ -23,6 +23,31 @@ export interface SeparatedSourceMeta {
   fileName: string;
 }
 
+export interface LyricWord {
+  text: string;
+  startSeconds: number;
+  endSeconds: number;
+}
+
+export interface LyricSegment {
+  id: string;
+  text: string;
+  startSeconds: number;
+  endSeconds: number;
+  words: LyricWord[];
+}
+
+export interface EntryLyrics {
+  enabled: boolean;
+  source: "extracted" | "edited";
+  provider: string;
+  model: string;
+  language: string | null;
+  languageProbability: number | null;
+  updatedAtIso: string;
+  segments: LyricSegment[];
+}
+
 export interface SavedBeatSummary {
   id: string;
   savedAtIso: string;
@@ -33,6 +58,9 @@ export interface SavedBeatSummary {
   gameBeatCount?: number;
   sourceEventCount?: number;
   separatedSourceCount?: number;
+  lyricsSegmentCount?: number;
+  lyricsWordCount?: number;
+  lyricsEnabled?: boolean;
   availableGameModes?: Array<"step_arrows" | "orb_beat">;
   availableDifficulties?: Array<"easy" | "normal" | "hard">;
   difficultyBeatCounts?: Partial<Record<"easy" | "normal" | "hard", number>>;
@@ -78,6 +106,7 @@ export interface SavedBeatEntry {
   majorBeats: BeatPoint[];
   sourceEvents?: SourceEvent[];
   separatedSources?: SeparatedSourceMeta[];
+  lyrics?: EntryLyrics;
   hybridAnalysis?: {
     storedFileName: string;
     updatedAtIso: string;

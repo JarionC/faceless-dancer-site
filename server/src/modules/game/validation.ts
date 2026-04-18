@@ -60,6 +60,28 @@ export interface SaveScorePayload {
   miss?: number;
 }
 
+export interface SaveLyricsPayload {
+  lyrics: {
+    enabled?: boolean;
+    source?: "extracted" | "edited";
+    provider?: string;
+    model?: string;
+    language?: string | null;
+    languageProbability?: number | null;
+    segments: Array<{
+      id?: string;
+      text: string;
+      startSeconds: number;
+      endSeconds: number;
+      words?: Array<{
+        text: string;
+        startSeconds: number;
+        endSeconds: number;
+      }>;
+    }>;
+  };
+}
+
 export function validateSavePayload(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") {
     return "Body must be a JSON object.";
@@ -218,6 +240,87 @@ export function validateSaveScorePayload(payload: unknown): string | null {
     const value = body[field];
     if (value !== undefined && (!isFiniteNumber(value) || value < 0)) {
       return `${field} must be a non-negative number when provided.`;
+    }
+  }
+
+  return null;
+}
+
+export function validateSaveLyricsPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") {
+    return "Body must be a JSON object.";
+  }
+
+  const body = payload as Record<string, unknown>;
+  if (!body.lyrics || typeof body.lyrics !== "object") {
+    return "lyrics object is required.";
+  }
+
+  const lyrics = body.lyrics as Record<string, unknown>;
+  if (lyrics.enabled !== undefined && typeof lyrics.enabled !== "boolean") {
+    return "lyrics.enabled must be a boolean when provided.";
+  }
+  if (lyrics.source !== undefined && lyrics.source !== "extracted" && lyrics.source !== "edited") {
+    return "lyrics.source must be extracted or edited when provided.";
+  }
+  if (lyrics.provider !== undefined && typeof lyrics.provider !== "string") {
+    return "lyrics.provider must be a string when provided.";
+  }
+  if (lyrics.model !== undefined && typeof lyrics.model !== "string") {
+    return "lyrics.model must be a string when provided.";
+  }
+  if (lyrics.language !== undefined && lyrics.language !== null && typeof lyrics.language !== "string") {
+    return "lyrics.language must be a string or null when provided.";
+  }
+  if (
+    lyrics.languageProbability !== undefined &&
+    lyrics.languageProbability !== null &&
+    (!isFiniteNumber(lyrics.languageProbability) || lyrics.languageProbability < 0 || lyrics.languageProbability > 1)
+  ) {
+    return "lyrics.languageProbability must be between 0 and 1 when provided.";
+  }
+
+  if (!Array.isArray(lyrics.segments)) {
+    return "lyrics.segments must be an array.";
+  }
+
+  for (const segment of lyrics.segments) {
+    if (!segment || typeof segment !== "object") {
+      return "Each lyric segment must be an object.";
+    }
+    const value = segment as Record<string, unknown>;
+    if (value.id !== undefined && typeof value.id !== "string") {
+      return "Each lyric segment id must be a string when provided.";
+    }
+    if (typeof value.text !== "string") {
+      return "Each lyric segment text must be a string.";
+    }
+    if (!isFiniteNumber(value.startSeconds) || value.startSeconds < 0) {
+      return "Each lyric segment startSeconds must be non-negative.";
+    }
+    if (!isFiniteNumber(value.endSeconds) || value.endSeconds < value.startSeconds) {
+      return "Each lyric segment endSeconds must be >= startSeconds.";
+    }
+
+    if (value.words !== undefined) {
+      if (!Array.isArray(value.words)) {
+        return "Each lyric segment words must be an array when provided.";
+      }
+      for (const word of value.words) {
+        if (!word || typeof word !== "object") {
+          return "Each lyric word must be an object.";
+        }
+        const wordValue = word as Record<string, unknown>;
+        if (typeof wordValue.text !== "string") {
+          return "Each lyric word text must be a string.";
+        }
+        if (!isFiniteNumber(wordValue.startSeconds) || wordValue.startSeconds < 0) {
+          return "Each lyric word startSeconds must be non-negative.";
+        }
+        if (!isFiniteNumber(wordValue.endSeconds) || wordValue.endSeconds < wordValue.startSeconds) {
+          return "Each lyric word endSeconds must be >= startSeconds.";
+        }
+      }
     }
   }
 

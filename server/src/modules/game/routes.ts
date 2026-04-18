@@ -19,6 +19,7 @@ import {
   readSeparatedLogTail,
   saveSongCoverImage,
   saveGameBeatsForEntry,
+  saveLyricsForEntry,
   saveMajorBeatsBundle,
   saveSeparatedSources,
 } from "./storage.js";
@@ -46,6 +47,7 @@ import {
 import {
   validateGameBeatsPayload,
   validateSavePayload,
+  validateSaveLyricsPayload,
   validateSaveScorePayload,
 } from "./validation.js";
 
@@ -70,6 +72,40 @@ async function readJsonBody(req: any): Promise<any> {
 function parsePositiveInt(value: unknown, fallback: number): number {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function normalizeWorkerLyricsResult(result: unknown): Record<string, unknown> | null {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+  const row = result as Record<string, unknown>;
+  const segments = Array.isArray(row.segments) ? row.segments : [];
+  return {
+    enabled: true,
+    source: "extracted",
+    provider: typeof row.provider === "string" ? row.provider : "faster-whisper",
+    model: typeof row.model === "string" ? row.model : "small",
+    language: typeof row.language === "string" ? row.language : null,
+    languageProbability:
+      row.languageProbability === null || row.languageProbability === undefined
+        ? null
+        : Number.isFinite(Number(row.languageProbability))
+          ? Number(row.languageProbability)
+          : null,
+    segments,
+  };
+}
+
+async function syncLyricsResultIntoEntry(entryId: string): Promise<void> {
+  const workerResult = await callWorker(`/lyrics-result/${encodeURIComponent(entryId)}`);
+  const normalized = normalizeWorkerLyricsResult(workerResult?.result);
+  if (!normalized) {
+    throw new Error("Lyrics result payload was empty.");
+  }
+  const updated = await saveLyricsForEntry(entryId, normalized);
+  if (!updated) {
+    throw new Error("Failed to persist lyrics into saved entry.");
+  }
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -423,6 +459,86 @@ router.get("/api/analyze/:id/result", requireAuth, requireAdmin, async (req, res
     logGameError("analysis-result", { route: "GET /api/game/api/analyze/:id/result", entryId: req.params.id }, error);
     return res.status(502).json({ error: error instanceof Error ? error.message : "Failed to fetch analysis result." });
   }
+});
+
+router.post("/api/lyrics/:id/start", requireAuth, requireAdmin, async (req, res) => {
+  const entry = await readSavedBeatEntry(req.params.id);
+  if (!entry) {
+    return res.status(404).json({ error: "Saved entry not found." });
+  }
+
+  try {
+    await hydratePreviewWorkerInput(req.params.id, entry);
+    const worker = await callWorker("/lyrics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        entryId: req.params.id,
+        storageDir: getPreviewWorkerStorageDir(),
+      }),
+    });
+    return res.json({ ok: true, worker });
+  } catch (error) {
+    logGameError("lyrics-start", { route: "POST /api/game/api/lyrics/:id/start", entryId: req.params.id }, error);
+    return res.status(502).json({ error: error instanceof Error ? error.message : "Failed to contact lyrics worker." });
+  }
+});
+
+router.get("/api/lyrics/:id/status", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const worker = await callWorker(`/lyrics-status/${encodeURIComponent(req.params.id)}`);
+    if (worker?.status === "completed") {
+      try {
+        await syncLyricsResultIntoEntry(req.params.id);
+      } catch (syncError) {
+        logGameError(
+          "lyrics-status-sync",
+          { route: "GET /api/game/api/lyrics/:id/status", entryId: req.params.id },
+          syncError
+        );
+      }
+    }
+    return res.json({ ok: true, ...worker });
+  } catch (error) {
+    logGameError("lyrics-status", { route: "GET /api/game/api/lyrics/:id/status", entryId: req.params.id }, error);
+    return res.status(502).json({ error: error instanceof Error ? error.message : "Failed to fetch lyrics status." });
+  }
+});
+
+router.get("/api/lyrics/:id/result", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const worker = await callWorker(`/lyrics-result/${encodeURIComponent(req.params.id)}`);
+    const normalized = normalizeWorkerLyricsResult(worker?.result);
+    if (normalized) {
+      await saveLyricsForEntry(req.params.id, normalized);
+    }
+    const entry = await readSavedBeatEntry(req.params.id);
+    if (entry?.lyrics) {
+      return res.json({ ok: true, entryId: req.params.id, result: entry.lyrics });
+    }
+    return res.json({ ok: true, ...worker });
+  } catch (error) {
+    const entry = await readSavedBeatEntry(req.params.id);
+    if (entry?.lyrics) {
+      return res.json({ ok: true, entryId: req.params.id, result: entry.lyrics });
+    }
+    logGameError("lyrics-result", { route: "GET /api/game/api/lyrics/:id/result", entryId: req.params.id }, error);
+    return res.status(502).json({ error: error instanceof Error ? error.message : "Failed to fetch lyrics result." });
+  }
+});
+
+router.put("/api/beats/:id/lyrics", requireAuth, requireAdmin, async (req, res) => {
+  const validationError = validateSaveLyricsPayload(req.body);
+  if (validationError) {
+    return res.status(400).json({ error: validationError });
+  }
+
+  const payload = req.body as { lyrics: unknown };
+  const updated = await saveLyricsForEntry(req.params.id, payload.lyrics);
+  if (!updated) {
+    return res.status(404).json({ error: "Saved entry not found." });
+  }
+  return res.json({ ok: true, entryId: req.params.id, lyrics: (updated as any).lyrics ?? null });
 });
 
 router.get("/api/catalog/songs", requireAuth, requireAdmin, async (req, res) => {

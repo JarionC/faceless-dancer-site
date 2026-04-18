@@ -19,6 +19,7 @@ import {
   type GameMode,
   getModeDifficultyChart,
 } from "../lib/game/difficultyCharts";
+import { LyricsSubtitle } from "./LyricsSubtitle";
 
 interface GameViewProps {
   apiBaseUrl: string;
@@ -1837,6 +1838,13 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
           ) : null}
           {score.combo > 1 ? <div className="ddr-combo-popup"><span className="game-score-number">{score.combo}</span> COMBO</div> : null}
           {phase === "countdown" && countdownBeats > 0 ? <div className="game-countdown-overlay">{countdownBeats}</div> : null}
+          {phase === "running" || phase === "finished" ? (
+            <LyricsSubtitle
+              lyrics={selectedEntry?.lyrics ?? null}
+              currentTimeSeconds={currentTimeSeconds}
+              className="lyrics-subtitle--game"
+            />
+          ) : null}
 
           {resultsModal.visible ? (
             <div className="game-results-modal" role="dialog" aria-modal="true">

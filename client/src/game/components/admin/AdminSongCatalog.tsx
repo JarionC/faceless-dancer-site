@@ -16,6 +16,9 @@ interface EntryRow {
     Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", number>>>
   >;
   hasLegacyNormalChartOnly?: boolean;
+  lyricsSegmentCount?: number;
+  lyricsWordCount?: number;
+  lyricsEnabled?: boolean;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -31,6 +34,9 @@ export function AdminSongCatalog(): JSX.Element {
   const [entries, setEntries] = useState<EntryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [lyricsRunningByEntryId, setLyricsRunningByEntryId] = useState<Record<string, boolean>>({});
+  const [lyricsStatusByEntryId, setLyricsStatusByEntryId] = useState<Record<string, string>>({});
+  const [lyricsStatusIsErrorByEntryId, setLyricsStatusIsErrorByEntryId] = useState<Record<string, boolean>>({});
 
   const load = async (): Promise<void> => {
     setLoading(true);
@@ -102,6 +108,68 @@ export function AdminSongCatalog(): JSX.Element {
     }
   };
 
+  const runLyricsExtraction = async (entryId: string): Promise<void> => {
+    if (lyricsRunningByEntryId[entryId]) {
+      return;
+    }
+    setStatus(null);
+    setLyricsRunningByEntryId((previous) => ({ ...previous, [entryId]: true }));
+    setLyricsStatusIsErrorByEntryId((previous) => ({ ...previous, [entryId]: false }));
+    setLyricsStatusByEntryId((previous) => ({ ...previous, [entryId]: "Starting lyrics extraction..." }));
+    try {
+      await fetchJson(`${runtimeConfig.beatApiBaseUrl}/api/lyrics/${encodeURIComponent(entryId)}/start`, {
+        method: "POST"
+      });
+      setLyricsStatusByEntryId((previous) => ({ ...previous, [entryId]: "Queued lyrics extraction." }));
+      const maxPollAttempts = 240;
+      for (let attempt = 0; attempt < maxPollAttempts; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        try {
+          const result = await fetchJson<{
+            status: string;
+            message?: string;
+            errorCode?: string;
+          }>(`${runtimeConfig.beatApiBaseUrl}/api/lyrics/${encodeURIComponent(entryId)}/status`);
+          const details = [result.status, result.message, result.errorCode].filter((part) => Boolean(part)).join(" | ");
+          setLyricsStatusByEntryId((previous) => ({
+            ...previous,
+            [entryId]: details || result.status || "running",
+          }));
+          setLyricsStatusIsErrorByEntryId((previous) => ({
+            ...previous,
+            [entryId]: result.status === "failed",
+          }));
+          if (result.status === "completed") {
+            setLyricsStatusByEntryId((previous) => ({ ...previous, [entryId]: "Lyrics extraction completed." }));
+            setStatus(`Lyrics extraction completed for ${entryId}.`);
+            await load();
+            return;
+          }
+          if (result.status === "failed") {
+            setStatus(`Lyrics extraction failed for ${entryId}.`);
+            return;
+          }
+        } catch (pollError) {
+          const message = pollError instanceof Error ? pollError.message : "Lyrics status polling failed.";
+          setLyricsStatusByEntryId((previous) => ({
+            ...previous,
+            [entryId]: `Status check issue: ${message}. Retrying...`,
+          }));
+        }
+      }
+      setLyricsStatusByEntryId((previous) => ({ ...previous, [entryId]: "Timed out waiting for lyrics status." }));
+      setLyricsStatusIsErrorByEntryId((previous) => ({ ...previous, [entryId]: true }));
+      setStatus(`Lyrics extraction timed out for ${entryId}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to extract lyrics.";
+      setLyricsStatusByEntryId((previous) => ({ ...previous, [entryId]: message }));
+      setLyricsStatusIsErrorByEntryId((previous) => ({ ...previous, [entryId]: true }));
+      setStatus(message);
+    } finally {
+      setLyricsRunningByEntryId((previous) => ({ ...previous, [entryId]: false }));
+    }
+  };
+
   return (
     <section className="card game-admin-card">
       <div className="game-admin-card__header">
@@ -119,7 +187,16 @@ export function AdminSongCatalog(): JSX.Element {
       {status ? <p className="small">{status}</p> : null}
       <div className="game-song-list">
         {entries.map((entry) => (
-          <SongRow key={entry.id} entry={entry} onSave={saveSong} onMaterializeNormal={materializeNormalDifficulty} />
+          <SongRow
+            key={entry.id}
+            entry={entry}
+            onSave={saveSong}
+            onMaterializeNormal={materializeNormalDifficulty}
+            onRunLyrics={runLyricsExtraction}
+            lyricsRunning={Boolean(lyricsRunningByEntryId[entry.id])}
+            lyricsStatus={lyricsStatusByEntryId[entry.id] ?? null}
+            lyricsStatusIsError={Boolean(lyricsStatusIsErrorByEntryId[entry.id])}
+          />
         ))}
       </div>
     </section>
@@ -129,11 +206,19 @@ export function AdminSongCatalog(): JSX.Element {
 function SongRow({
   entry,
   onSave,
-  onMaterializeNormal
+  onMaterializeNormal,
+  onRunLyrics,
+  lyricsRunning,
+  lyricsStatus,
+  lyricsStatusIsError
 }: {
   entry: EntryRow;
   onSave: (entryId: string, title: string, isEnabled: boolean) => Promise<void>;
   onMaterializeNormal: (entryId: string) => Promise<void>;
+  onRunLyrics: (entryId: string) => Promise<void>;
+  lyricsRunning: boolean;
+  lyricsStatus: string | null;
+  lyricsStatusIsError: boolean;
 }): JSX.Element {
   const [title, setTitle] = useState(entry.songTitle || entry.entryName);
   const [enabled, setEnabled] = useState(Boolean(entry.enabled));
@@ -263,6 +348,21 @@ function SongRow({
           {materializingNormal ? "Applying..." : "Mark Legacy As Normal"}
         </button>
       ) : null}
+      <button
+        type="button"
+        className="secondary"
+        disabled={lyricsRunning || !((entry.majorBeatCount ?? 0) > 0)}
+        onClick={() => {
+          onRunLyrics(entry.id).catch(() => undefined);
+        }}
+      >
+        {lyricsRunning ? "Extracting Lyrics..." : "Run Lyrics Extraction"}
+      </button>
+      {lyricsStatus ? <p className={lyricsStatusIsError ? "error" : "small"}>{lyricsStatus}</p> : null}
+      <p className="small">
+        Lyrics: {entry.lyricsSegmentCount ?? 0} segments, {entry.lyricsWordCount ?? 0} words
+        {entry.lyricsEnabled ? " | enabled" : ""}
+      </p>
     </div>
   );
 }

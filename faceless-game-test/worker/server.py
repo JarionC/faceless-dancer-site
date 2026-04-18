@@ -15,6 +15,8 @@ JOBS = {}
 JOBS_LOCK = threading.Lock()
 ANALYSIS_JOBS = {}
 ANALYSIS_JOBS_LOCK = threading.Lock()
+LYRICS_JOBS = {}
+LYRICS_JOBS_LOCK = threading.Lock()
 DEFAULT_TIMEOUT_SECONDS = 20 * 60
 DEFAULT_LOG_TAIL_LINES = 200
 MAX_STATUS_MESSAGE_CHARS = 220
@@ -115,6 +117,20 @@ def _analysis_result_path(storage_dir: Path, entry_id: str):
     return storage_dir / "analysis" / f"{safe_entry_id}.json"
 
 
+def _lyrics_log_path(storage_dir: Path, entry_id: str):
+    safe_entry_id = _sanitize_id(entry_id)
+    if not safe_entry_id:
+        return None
+    return storage_dir / "lyrics" / safe_entry_id / "lyrics.log"
+
+
+def _lyrics_result_path(storage_dir: Path, entry_id: str):
+    safe_entry_id = _sanitize_id(entry_id)
+    if not safe_entry_id:
+        return None
+    return storage_dir / "lyrics" / f"{safe_entry_id}.json"
+
+
 def _append_log_line(log_path: Path, level: str, message: str):
     log_path.parent.mkdir(parents=True, exist_ok=True)
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -183,6 +199,29 @@ def _set_analysis_job(entry_id: str, status: str, message: str = "", error_code=
         elif "errorCode" in current and status != "failed":
             updated["errorCode"] = current["errorCode"]
         ANALYSIS_JOBS[entry_id] = updated
+
+
+def _set_lyrics_job(entry_id: str, status: str, message: str = "", error_code=None, storage_dir=None):
+    summary = str(message or "").strip()
+    if len(summary) > MAX_STATUS_MESSAGE_CHARS:
+        summary = f"{summary[: MAX_STATUS_MESSAGE_CHARS - 3]}..."
+    with LYRICS_JOBS_LOCK:
+        current = LYRICS_JOBS.get(entry_id, {})
+        updated = {
+            "entryId": entry_id,
+            "status": status,
+            "message": summary,
+            "updatedAt": time.time(),
+        }
+        if storage_dir:
+            updated["storageDir"] = str(storage_dir)
+        elif current.get("storageDir"):
+            updated["storageDir"] = current.get("storageDir")
+        if error_code:
+            updated["errorCode"] = error_code
+        elif "errorCode" in current and status != "failed":
+            updated["errorCode"] = current["errorCode"]
+        LYRICS_JOBS[entry_id] = updated
 
 
 def _finalize_failure(entry_id: str, log_path: Path, message: str, error_code: str):
@@ -1059,6 +1098,242 @@ def _run_hybrid_analysis(entry_id: str, storage_dir_raw: str, analysis_overrides
     _set_analysis_job(entry_id, "completed", "Hybrid analysis completed.", storage_dir=storage_dir)
 
 
+def _run_lyrics_extraction(entry_id: str, storage_dir_raw: str):
+    storage_dir = Path(storage_dir_raw)
+    log_path = _lyrics_log_path(storage_dir, entry_id)
+    result_path = _lyrics_result_path(storage_dir, entry_id)
+    if not log_path or not result_path:
+        _set_lyrics_job(entry_id, "failed", "Invalid entry id.", error_code="invalid_entry_id")
+        return
+
+    timeout_seconds = _parse_positive_int(
+        os.environ.get("LYRICS_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)),
+        DEFAULT_TIMEOUT_SECONDS,
+    )
+    _append_log_line(log_path, "INFO", f"Lyrics extraction requested for entry '{entry_id}'.")
+    entry, json_path = _load_saved_entry(storage_dir, entry_id)
+    if not entry or not json_path:
+        _append_log_line(log_path, "ERROR", "entry_not_found: Saved entry not found.")
+        _set_lyrics_job(entry_id, "failed", "Saved entry not found.", error_code="entry_not_found")
+        return
+
+    audio_file = entry.get("audio", {}).get("storedFileName")
+    if not audio_file:
+        _append_log_line(log_path, "ERROR", "audio_reference_missing: Stored audio reference missing.")
+        _set_lyrics_job(
+            entry_id, "failed", "Stored audio reference missing.", error_code="audio_reference_missing"
+        )
+        return
+
+    audio_path = storage_dir / "audio" / audio_file
+    if not audio_path.exists():
+        _append_log_line(log_path, "ERROR", "audio_missing: Stored audio file missing.")
+        _set_lyrics_job(entry_id, "failed", "Stored audio file missing.", error_code="audio_missing")
+        return
+
+    output_base = Path(
+        _parse_nonempty_string(os.environ.get("BS_ROFORMER_OUTPUT_DIR", "/app/worker-output"), "/app/worker-output")
+    )
+    lyrics_input_dir = output_base / entry_id / "lyrics-input"
+    if lyrics_input_dir.exists():
+        shutil.rmtree(lyrics_input_dir, ignore_errors=True)
+    lyrics_input_dir.mkdir(parents=True, exist_ok=True)
+    local_input_wav = lyrics_input_dir / "input.wav"
+    convert_code, convert_tail = _convert_audio_to_wav(log_path, audio_path, local_input_wav, timeout_seconds)
+    if convert_code == 124:
+        _append_log_line(log_path, "ERROR", "input_to_wav_conversion_timeout: Input conversion timed out.")
+        _set_lyrics_job(
+            entry_id,
+            "failed",
+            f"Input conversion timed out after {timeout_seconds} seconds.",
+            error_code="input_to_wav_conversion_timeout",
+        )
+        return
+    if convert_code != 0 or not local_input_wav.exists():
+        _append_log_line(log_path, "ERROR", "input_to_wav_conversion_failed: Failed input conversion.")
+        _set_lyrics_job(
+            entry_id,
+            "failed",
+            "Failed to convert input audio to WAV for lyrics extraction.",
+            error_code="input_to_wav_conversion_failed",
+        )
+        return
+
+    _set_lyrics_job(entry_id, "running", "Running Whisper lyrics extraction...", storage_dir=storage_dir)
+
+    model_size = _parse_nonempty_string(os.environ.get("LYRICS_WHISPER_MODEL_SIZE", "small"), "small")
+    device = _parse_nonempty_string(os.environ.get("LYRICS_WHISPER_DEVICE", "cpu"), "cpu")
+    compute_type = _parse_nonempty_string(os.environ.get("LYRICS_WHISPER_COMPUTE_TYPE", "int8"), "int8")
+    beam_size = _parse_positive_int(os.environ.get("LYRICS_WHISPER_BEAM_SIZE", "5"), 5)
+    use_vad_filter = _parse_bool(os.environ.get("LYRICS_WHISPER_VAD_FILTER", "0"), False)
+    language_hint = _parse_nonempty_string(os.environ.get("LYRICS_WHISPER_LANGUAGE", ""), "")
+    if language_hint.lower() == "auto":
+        language_hint = ""
+    lyrics_models_dir = Path(
+        _parse_nonempty_string(
+            os.environ.get("LYRICS_WHISPER_MODELS_DIR", "/app/worker-models/faster-whisper"),
+            "/app/worker-models/faster-whisper",
+        )
+    )
+    lyrics_models_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from faster_whisper import WhisperModel  # pylint: disable=import-outside-toplevel
+    except Exception as error:
+        _append_log_line(log_path, "ERROR", f"faster_whisper_missing: {error}")
+        _set_lyrics_job(
+            entry_id,
+            "failed",
+            "faster-whisper dependency is missing in worker runtime.",
+            error_code="faster_whisper_missing",
+        )
+        return
+
+    try:
+        model = WhisperModel(
+            model_size,
+            device=device,
+            compute_type=compute_type,
+            download_root=str(lyrics_models_dir),
+        )
+    except Exception as error:
+        _append_log_line(log_path, "ERROR", f"lyrics_model_init_failed: {error}")
+        _set_lyrics_job(
+            entry_id,
+            "failed",
+            "Failed to initialize faster-whisper model.",
+            error_code="lyrics_model_init_failed",
+        )
+        return
+
+    _append_log_line(
+        log_path,
+        "INFO",
+        (
+            "Lyrics extractor config: "
+            f"model={model_size}, device={device}, compute_type={compute_type}, "
+            f"beam_size={beam_size}, vad_filter={1 if use_vad_filter else 0}, "
+            f"language_hint={language_hint or 'auto'}"
+        ),
+    )
+
+    try:
+        raw_segments, info = model.transcribe(
+            str(local_input_wav),
+            language=language_hint or None,
+            beam_size=beam_size,
+            vad_filter=use_vad_filter,
+            word_timestamps=True,
+            condition_on_previous_text=False,
+        )
+    except Exception as error:
+        _append_log_line(log_path, "ERROR", f"lyrics_transcription_failed: {error}")
+        _set_lyrics_job(
+            entry_id,
+            "failed",
+            "faster-whisper transcription failed.",
+            error_code="lyrics_transcription_failed",
+        )
+        return
+
+    segments = []
+    word_count = 0
+    for index, raw_segment in enumerate(raw_segments):
+        segment_start = max(0.0, float(getattr(raw_segment, "start", 0.0) or 0.0))
+        segment_end = max(segment_start, float(getattr(raw_segment, "end", segment_start) or segment_start))
+        segment_text = re.sub(r"\s+", " ", str(getattr(raw_segment, "text", "") or "")).strip()
+        words = []
+        raw_words = getattr(raw_segment, "words", None)
+        if raw_words:
+            for raw_word in raw_words:
+                word_text = re.sub(r"\s+", " ", str(getattr(raw_word, "word", "") or "")).strip()
+                if not word_text:
+                    continue
+                word_start = max(0.0, float(getattr(raw_word, "start", segment_start) or segment_start))
+                word_end = max(word_start, float(getattr(raw_word, "end", word_start) or word_start))
+                words.append(
+                    {
+                        "text": word_text,
+                        "startSeconds": word_start,
+                        "endSeconds": word_end,
+                    }
+                )
+        if not segment_text and words:
+            segment_text = " ".join(word.get("text", "") for word in words).strip()
+        if not words and segment_text:
+            words.append(
+                {
+                    "text": segment_text,
+                    "startSeconds": segment_start,
+                    "endSeconds": segment_end,
+                }
+            )
+        if not segment_text:
+            continue
+
+        segment_id = f"seg-{index + 1:04d}"
+        segments.append(
+            {
+                "id": segment_id,
+                "text": segment_text,
+                "startSeconds": segment_start,
+                "endSeconds": segment_end,
+                "words": words,
+            }
+        )
+        word_count += len(words)
+
+    detected_language = getattr(info, "language", None)
+    language_probability_raw = getattr(info, "language_probability", None)
+    language_probability = None
+    if isinstance(language_probability_raw, (int, float)):
+        parsed_probability = float(language_probability_raw)
+        if parsed_probability == parsed_probability and parsed_probability not in (float("inf"), float("-inf")):
+            language_probability = max(0.0, min(1.0, parsed_probability))
+
+    generated_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    result_payload = {
+        "entryId": entry_id,
+        "provider": "faster-whisper",
+        "model": model_size,
+        "device": device,
+        "computeType": compute_type,
+        "language": detected_language or None,
+        "languageProbability": language_probability,
+        "generatedAtIso": generated_at_iso,
+        "segmentCount": len(segments),
+        "wordCount": word_count,
+        "segments": segments,
+    }
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        result_path.write_text(json.dumps(result_payload, indent=2), encoding="utf-8")
+    except Exception as error:
+        _append_log_line(log_path, "ERROR", f"lyrics_result_write_failed: {error}")
+        _set_lyrics_job(
+            entry_id,
+            "failed",
+            "Failed to persist lyrics extraction result.",
+            error_code="lyrics_result_write_failed",
+        )
+        return
+
+    entry["lyrics"] = {
+        "enabled": True,
+        "source": "extracted",
+        "provider": "faster-whisper",
+        "model": model_size,
+        "language": detected_language or None,
+        "languageProbability": language_probability,
+        "updatedAtIso": generated_at_iso,
+        "segments": segments,
+    }
+    json_path.write_text(json.dumps(entry, indent=2), encoding="utf-8")
+    _append_log_line(log_path, "INFO", f"Lyrics extraction completed with {len(segments)} segments.")
+    _set_lyrics_job(entry_id, "completed", "Lyrics extraction completed.", storage_dir=storage_dir)
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         _json_response(self, 204, {})
@@ -1120,6 +1395,31 @@ class Handler(BaseHTTPRequestHandler):
                 thread = threading.Thread(
                     target=_run_hybrid_analysis,
                     args=(entry_id, storage_dir, analysis_overrides),
+                    daemon=True,
+                )
+                thread.start()
+                _json_response(self, 200, {"ok": True, "status": "queued"})
+                return
+            except Exception as error:
+                _json_response(self, 500, {"error": str(error)})
+                return
+        if parsed.path == "/lyrics":
+            try:
+                body = _read_json(self)
+                entry_id = str(body.get("entryId", "")).strip()
+                storage_dir = str(body.get("storageDir", "")).strip()
+                if not entry_id or not storage_dir:
+                    _json_response(self, 400, {"error": "entryId and storageDir are required."})
+                    return
+                with LYRICS_JOBS_LOCK:
+                    existing = LYRICS_JOBS.get(entry_id)
+                    if existing and existing.get("status") == "running":
+                        _json_response(self, 200, {"ok": True, "status": "running"})
+                        return
+                _set_lyrics_job(entry_id, "queued", "Queued lyrics extraction job.", storage_dir=storage_dir)
+                thread = threading.Thread(
+                    target=_run_lyrics_extraction,
+                    args=(entry_id, storage_dir),
                     daemon=True,
                 )
                 thread.start()
@@ -1226,6 +1526,46 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(result_path.read_text(encoding="utf-8"))
             except Exception:
                 _json_response(self, 500, {"error": "Failed to read analysis result."})
+                return
+            _json_response(self, 200, {"ok": True, "entryId": entry_id, "result": payload})
+            return
+
+        if parsed.path.startswith("/lyrics-status/"):
+            entry_id = parsed.path[len("/lyrics-status/") :]
+            with LYRICS_JOBS_LOCK:
+                job = LYRICS_JOBS.get(entry_id)
+            if not job:
+                _json_response(self, 404, {"error": "Lyrics job not found."})
+                return
+            payload = {
+                "ok": True,
+                "entryId": job.get("entryId"),
+                "status": job.get("status"),
+                "message": job.get("message", ""),
+                "updatedAt": job.get("updatedAt"),
+            }
+            if job.get("errorCode"):
+                payload["errorCode"] = job.get("errorCode")
+            _json_response(self, 200, payload)
+            return
+
+        if parsed.path.startswith("/lyrics-result/"):
+            entry_id = parsed.path[len("/lyrics-result/") :]
+            with LYRICS_JOBS_LOCK:
+                job = LYRICS_JOBS.get(entry_id)
+            storage_dir = None
+            if job and job.get("storageDir"):
+                storage_dir = Path(job.get("storageDir"))
+            else:
+                storage_dir = Path(os.environ.get("BEAT_STORAGE_DIR", "beat-storage"))
+            result_path = _lyrics_result_path(storage_dir, entry_id)
+            if not result_path or not result_path.exists():
+                _json_response(self, 404, {"error": "Lyrics result not found."})
+                return
+            try:
+                payload = json.loads(result_path.read_text(encoding="utf-8"))
+            except Exception:
+                _json_response(self, 500, {"error": "Failed to read lyrics result."})
                 return
             _json_response(self, 200, {"ok": True, "entryId": entry_id, "result": payload})
             return

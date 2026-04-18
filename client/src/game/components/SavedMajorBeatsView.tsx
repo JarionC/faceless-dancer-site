@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { PointerEvent as ReactPointerEvent } from "preact/compat";
 import { createPrecisePlaybackEngine, type PrecisePlaybackEngine } from "../lib/audio/precisePlaybackEngine";
-import type { BeatPoint, SavedBeatEntry, SavedBeatSummary, SourceEvent, SourceName } from "../types/beat";
+import type {
+  BeatPoint,
+  EntryLyrics,
+  SavedBeatEntry,
+  SavedBeatSummary,
+  SourceEvent,
+  SourceName,
+} from "../types/beat";
 import { formatSourceLabel, getSourceColor, sortSourceLabels } from "../lib/visual/sourceColors";
 import { decodeAudioArrayBuffer } from "../lib/audio/decodeAudio";
 import { extractBeatDataFromAudioBuffer } from "../lib/audio/extractBeatData";
@@ -17,6 +24,7 @@ import {
   getModeDifficultyBeatCount,
   getModeDifficultyChart,
 } from "../lib/game/difficultyCharts";
+import { LyricsEditorPanel } from "./admin/LyricsEditorPanel";
 
 interface SavedMajorBeatsViewProps {
   apiBaseUrl: string;
@@ -782,6 +790,18 @@ export function SavedMajorBeatsView({
     () => Math.max(MIN_CHART_WIDTH, Math.ceil(durationSeconds * PIXELS_PER_SECOND)),
     [durationSeconds]
   );
+
+  const handleLyricsUpdated = (lyrics: EntryLyrics): void => {
+    setSelectedEntry((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return {
+        ...previous,
+        lyrics,
+      };
+    });
+  };
   const hybridEvents = useMemo<SourceEvent[]>(() => {
     if (!analysisResult) {
       return [];
@@ -1731,6 +1751,13 @@ export function SavedMajorBeatsView({
                 ))}
               </div>
             </fieldset>
+            <LyricsEditorPanel
+              apiBaseUrl={apiBaseUrl}
+              entryId={selectedEntry.id}
+              initialLyrics={selectedEntry.lyrics ?? null}
+              currentTimeSeconds={currentTimeSeconds}
+              onLyricsUpdated={handleLyricsUpdated}
+            />
           </div>
           {separationLogText && <pre className="separation-log">{separationLogText}</pre>}
           <div className="source-legend">

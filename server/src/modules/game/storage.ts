@@ -33,6 +33,9 @@ export interface SavedBeatSummary {
   gameBeatCount?: number;
   sourceEventCount?: number;
   separatedSourceCount?: number;
+  lyricsSegmentCount?: number;
+  lyricsWordCount?: number;
+  lyricsEnabled?: boolean;
   enabled?: boolean;
   songTitle?: string;
   availableGameModes?: Array<"step_arrows" | "orb_beat">;
@@ -42,6 +45,31 @@ export interface SavedBeatSummary {
     Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", number>>>
   >;
   hasLegacyNormalChartOnly?: boolean;
+}
+
+export interface SavedLyricWord {
+  text: string;
+  startSeconds: number;
+  endSeconds: number;
+}
+
+export interface SavedLyricSegment {
+  id: string;
+  text: string;
+  startSeconds: number;
+  endSeconds: number;
+  words: SavedLyricWord[];
+}
+
+export interface SavedEntryLyrics {
+  enabled: boolean;
+  source: "extracted" | "edited";
+  provider: string;
+  model: string;
+  language: string | null;
+  languageProbability: number | null;
+  updatedAtIso: string;
+  segments: SavedLyricSegment[];
 }
 
 function bunnyObjectPath(relativePath: string): string {
@@ -69,6 +97,118 @@ function sanitizeSourceLabel(value: unknown): string {
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, "")
     .slice(0, 60);
+}
+
+function sanitizeLyricText(value: unknown, maxLength: number): string {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function toFiniteNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toBoundedNumber(value: unknown, min: number, max: number, fallback: number): number {
+  const parsed = toFiniteNumber(value, fallback);
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function sanitizeLyricWords(input: unknown, segmentStart: number, segmentEnd: number): SavedLyricWord[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  const words: SavedLyricWord[] = [];
+  for (const entry of input) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const row = entry as Record<string, unknown>;
+    const text = sanitizeLyricText(row.text, 120);
+    if (!text) {
+      continue;
+    }
+    const rawStart = toFiniteNumber(row.startSeconds, segmentStart);
+    const rawEnd = toFiniteNumber(row.endSeconds, segmentEnd);
+    const startSeconds = Math.max(0, Math.min(rawStart, rawEnd));
+    const endSeconds = Math.max(startSeconds, rawEnd);
+    words.push({
+      text,
+      startSeconds: Math.max(segmentStart, Math.min(segmentEnd, startSeconds)),
+      endSeconds: Math.max(segmentStart, Math.min(segmentEnd, endSeconds)),
+    });
+  }
+
+  words.sort((a, b) => a.startSeconds - b.startSeconds);
+  return words;
+}
+
+function sanitizeLyricsPayload(input: unknown, previousLyrics: SavedEntryLyrics | null): SavedEntryLyrics | null {
+  if (!input || typeof input !== "object") {
+    return null;
+  }
+
+  const payload = input as Record<string, unknown>;
+  const source = payload.source === "extracted" ? "extracted" : "edited";
+  const provider = sanitizeLyricText(payload.provider, 80) || previousLyrics?.provider || "faster-whisper";
+  const model = sanitizeLyricText(payload.model, 80) || previousLyrics?.model || "small";
+  const languageText = sanitizeLyricText(payload.language, 24);
+  const language = languageText || null;
+  const languageProbabilityValue = payload.languageProbability;
+  const languageProbability =
+    languageProbabilityValue === null || languageProbabilityValue === undefined
+      ? null
+      : toBoundedNumber(languageProbabilityValue, 0, 1, 0);
+  const enabled = payload.enabled === undefined ? true : Boolean(payload.enabled);
+
+  const rawSegments = Array.isArray(payload.segments) ? payload.segments : [];
+  const segments: SavedLyricSegment[] = [];
+  for (let index = 0; index < rawSegments.length; index += 1) {
+    const rawSegment = rawSegments[index];
+    if (!rawSegment || typeof rawSegment !== "object") {
+      continue;
+    }
+    const segment = rawSegment as Record<string, unknown>;
+    const segmentIdRaw = String(segment.id ?? `segment-${index + 1}`);
+    const segmentId = segmentIdRaw
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || `segment-${index + 1}`;
+    const rawStart = toFiniteNumber(segment.startSeconds, 0);
+    const rawEnd = toFiniteNumber(segment.endSeconds, rawStart);
+    const startSeconds = Math.max(0, Math.min(rawStart, rawEnd));
+    const endSeconds = Math.max(startSeconds, rawEnd);
+    const words = sanitizeLyricWords(segment.words, startSeconds, endSeconds);
+    const fallbackText = words.map((word) => word.text).join(" ").trim();
+    const text = sanitizeLyricText(segment.text, 400) || fallbackText;
+    if (!text) {
+      continue;
+    }
+    segments.push({
+      id: segmentId,
+      text,
+      startSeconds,
+      endSeconds,
+      words,
+    });
+  }
+
+  segments.sort((a, b) => a.startSeconds - b.startSeconds);
+
+  return {
+    enabled,
+    source,
+    provider,
+    model,
+    language,
+    languageProbability,
+    updatedAtIso: new Date().toISOString(),
+    segments,
+  };
 }
 
 function normalizeExtension(fileName: string): string {
@@ -124,6 +264,15 @@ function parseSavedEntry(parsed: Record<string, unknown>): SavedBeatSummary {
   const difficultyBeatCounts = getDifficultyBeatCounts(parsed, "step_arrows");
   const normalChart = getModeDifficultyChart(parsed, "step_arrows", "normal");
   const gameBeatCount = countDifficultyChartBeats(normalChart);
+  const lyrics = parsed.lyrics as { enabled?: unknown; segments?: unknown } | undefined;
+  const lyricSegments = Array.isArray(lyrics?.segments) ? lyrics?.segments : [];
+  const lyricsWordCount = lyricSegments.reduce((total, segment) => {
+    if (!segment || typeof segment !== "object") {
+      return total;
+    }
+    const words = (segment as { words?: unknown }).words;
+    return total + (Array.isArray(words) ? words.length : 0);
+  }, 0);
 
   return {
     id: String(parsed.id ?? ""),
@@ -139,7 +288,10 @@ function parseSavedEntry(parsed: Record<string, unknown>): SavedBeatSummary {
     availableDifficulties: getAvailableDifficulties(parsed),
     hasLegacyNormalChartOnly: hasLegacyNormalChartOnly(parsed),
     sourceEventCount: Array.isArray(parsed.sourceEvents) ? parsed.sourceEvents.length : 0,
-    separatedSourceCount: Array.isArray(parsed.separatedSources) ? parsed.separatedSources.length : 0
+    separatedSourceCount: Array.isArray(parsed.separatedSources) ? parsed.separatedSources.length : 0,
+    lyricsSegmentCount: lyricSegments.length,
+    lyricsWordCount,
+    lyricsEnabled: Boolean(lyrics?.enabled),
   };
 }
 
@@ -452,6 +604,37 @@ export async function saveSongCoverImage(
   });
 
   return { storedFileName };
+}
+
+export async function saveLyricsForEntry(
+  id: string,
+  lyrics: unknown
+): Promise<Record<string, unknown> | null> {
+  const safeId = sanitizeId(id);
+  if (!safeId) {
+    return null;
+  }
+  const entry = await readSavedBeatEntry(safeId);
+  if (!entry) {
+    return null;
+  }
+
+  const previousLyrics =
+    entry.lyrics && typeof entry.lyrics === "object"
+      ? (entry.lyrics as SavedEntryLyrics)
+      : null;
+  const sanitizedLyrics = sanitizeLyricsPayload(lyrics, previousLyrics);
+  if (!sanitizedLyrics) {
+    return null;
+  }
+
+  const updated = {
+    ...entry,
+    lyrics: sanitizedLyrics,
+  };
+
+  await writeEntryJsonBySafeId(safeId, updated);
+  return updated;
 }
 
 export async function createSongCoverReadStream(

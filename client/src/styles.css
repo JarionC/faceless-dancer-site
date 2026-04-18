@@ -1950,6 +1950,70 @@ label {
   z-index: 9;
 }
 
+.lyrics-subtitle {
+  pointer-events: none;
+  width: min(940px, calc(100% - 26px));
+  margin: 0 auto;
+  padding: 0 18px;
+  opacity: 0;
+}
+
+.lyrics-subtitle--game {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 18px;
+  z-index: 11;
+}
+
+.lyrics-subtitle__line {
+  margin: 0;
+  text-align: center;
+  font-family: "GameScore", "GamePlayed", "Space Grotesk", sans-serif;
+  font-size: clamp(1rem, 2.3vw, 1.66rem);
+  line-height: 1.4;
+  letter-spacing: 0.05em;
+  color: rgba(236, 245, 255, 0.95);
+  text-shadow:
+    0 0 18px rgba(8, 14, 23, 0.98),
+    0 0 34px rgba(8, 14, 23, 0.88),
+    0 0 6px rgba(90, 200, 255, 0.42);
+}
+
+.lyrics-subtitle.active {
+  opacity: 1;
+  animation: lyrics-enter 200ms ease-out forwards;
+}
+
+.lyrics-subtitle.entering {
+  opacity: 1;
+  animation: lyrics-enter 170ms ease-out forwards;
+}
+
+.lyrics-subtitle.leaving {
+  opacity: 0.78;
+  animation: lyrics-leave 220ms ease-in forwards;
+}
+
+.lyrics-word {
+  transition: color 120ms linear, opacity 120ms linear, text-shadow 120ms linear;
+}
+
+.lyrics-word.idle {
+  color: rgba(214, 228, 245, 0.82);
+}
+
+.lyrics-word.past {
+  color: rgba(179, 199, 223, 0.62);
+}
+
+.lyrics-word.active {
+  color: #ffe49a;
+  text-shadow:
+    0 0 18px rgba(255, 228, 154, 0.68),
+    0 0 24px rgba(255, 228, 154, 0.42);
+}
+
 .game-results-modal {
   position: absolute;
   left: 50%;
@@ -2029,6 +2093,16 @@ label {
   12% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   70% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   100% { opacity: 0; transform: translate(-50%, -50%) scale(1.03); }
+}
+
+@keyframes lyrics-enter {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes lyrics-leave {
+  0% { opacity: 0.86; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-6px); }
 }
 
 .saved-panel,
@@ -2274,6 +2348,103 @@ label {
   overflow: auto;
 }
 
+.lyrics-editor-panel {
+  grid-column: 1 / -1;
+}
+
+.lyrics-editor-actions {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.lyrics-editor-actions button {
+  width: auto;
+  min-width: 150px;
+  margin: 0;
+  padding: 8px 12px;
+}
+
+.lyrics-enabled-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lyrics-enabled-toggle input {
+  margin: 0;
+  width: auto;
+}
+
+.lyrics-preview-shell {
+  width: 100%;
+  min-height: 110px;
+  border: 1px solid rgba(149, 178, 211, 0.22);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(8, 15, 24, 0.85), rgba(5, 10, 17, 0.95));
+  padding: 10px 12px;
+}
+
+.lyrics-preview-shell .small {
+  margin: 0 0 8px;
+}
+
+.lyrics-subtitle--preview {
+  position: relative;
+  width: 100%;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0;
+}
+
+.lyrics-segment-list {
+  width: 100%;
+  display: grid;
+  gap: 10px;
+  max-height: 340px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.lyrics-segment-item {
+  border: 1px solid rgba(149, 178, 211, 0.16);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(8, 15, 24, 0.65);
+}
+
+.lyrics-segment-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  align-items: end;
+}
+
+.lyrics-segment-grid button {
+  margin: 0;
+  width: 100%;
+}
+
+.lyrics-word-list {
+  display: grid;
+  gap: 6px;
+}
+
+.lyrics-word-item {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 120px 120px auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.lyrics-word-item input,
+.lyrics-word-item button {
+  margin: 0;
+}
+
 .source-legend {
   display: flex;
   gap: 8px;
@@ -2502,6 +2673,14 @@ label {
   }
 
   .editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lyrics-segment-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lyrics-word-item {
     grid-template-columns: 1fr;
   }
 
