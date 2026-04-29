@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220">
+  <defs>
+    <linearGradient id="armor" x1="0" x2="1">
+      <stop offset="0" stop-color="#5ee8ff"/>
+      <stop offset="1" stop-color="#2f6fff"/>
+    </linearGradient>
+    <linearGradient id="visor" x1="0" x2="1">
+      <stop offset="0" stop-color="#ffe26b"/>
+      <stop offset="1" stop-color="#ff9f1c"/>
+    </linearGradient>
+  </defs>
+  <rect width="220" height="220" fill="none"/>
+  <ellipse cx="112" cy="198" rx="66" ry="14" fill="#0b1327" opacity=".75"/>
+  <path d="M72 120h78l14 20v44H58v-44z" fill="url(#armor)" stroke="#d8f6ff" stroke-width="4"/>
+  <rect x="88" y="132" width="44" height="20" rx="6" fill="#0e2542"/>
+  <path d="M84 86h56l10 12v22H74V98z" fill="#3268ff" stroke="#d8f6ff" stroke-width="4"/>
+  <rect x="88" y="98" width="48" height="12" rx="4" fill="url(#visor)" stroke="#fff2bf" stroke-width="2"/>
+  <path d="M164 132l34 8-12 16-26-4z" fill="#8fd8ff" stroke="#e9fbff" stroke-width="3"/>
+  <rect x="156" y="126" width="20" height="18" rx="4" fill="#233a78"/>
+  <path d="M58 126l-14 8 8 20 14-8z" fill="#8fd8ff" stroke="#e9fbff" stroke-width="3"/>
+  <path d="M82 184h22v22H68v-8zM134 184h22v22h-36v-8z" fill="#4ca9ff" stroke="#d8f6ff" stroke-width="3"/>
+</svg>

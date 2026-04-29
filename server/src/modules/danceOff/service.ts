@@ -232,7 +232,7 @@ export async function createDanceOffWithOwner(params: {
   ownerPublicKey: string;
   ownerDisplayName?: string | null;
   beatEntryId: string;
-  gameMode: "step_arrows" | "orb_beat";
+  gameMode: "step_arrows" | "orb_beat" | "laser_shoot";
   difficulty: "easy" | "normal" | "hard";
   competitors: number;
 }): Promise<DanceOffPayload> {

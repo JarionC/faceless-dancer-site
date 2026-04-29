@@ -23,7 +23,7 @@ export interface DanceOffPayload {
   id: string;
   status: DanceOffStatus;
   beatEntryId: string;
-  gameMode: "step_arrows" | "orb_beat";
+  gameMode: "step_arrows" | "orb_beat" | "laser_shoot";
   difficulty: "easy" | "normal" | "hard";
   requiredPlayerCount: number;
   ownerUserId: string;

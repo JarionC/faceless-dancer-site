@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 160">
+  <defs>
+    <g id="marine-fire-base">
+      <ellipse cx="80" cy="146" rx="40" ry="8" fill="#07101f" opacity=".9"/>
+      <path d="M52 82h58l10 14v32H40V96z" fill="#3e80ff" stroke="#d2f4ff" stroke-width="2"/>
+      <rect x="58" y="90" width="46" height="9" rx="2" fill="#ffd36f" stroke="#fff2bf" stroke-width="1"/>
+      <path d="M49 108h62l8 10v28H41v-28z" fill="#56b8ff" stroke="#d2f4ff" stroke-width="2"/>
+      <rect x="67" y="116" width="28" height="11" rx="2" fill="#0d2648"/>
+      <path d="M118 108l27 6-8 11-22-3z" fill="#86d7ff" stroke="#dff8ff" stroke-width="2"/>
+      <path d="M42 112l-12 7 6 14 11-6z" fill="#8adfff" stroke="#dff8ff" stroke-width="2"/>
+      <path d="M54 145h16v11H49v-4zM92 145h16v11H80v-4z" fill="#49a4ff" stroke="#d2f4ff" stroke-width="2"/>
+    </g>
+  </defs>
+
+  <g transform="translate(0,2)">
+    <use href="#marine-fire-base"/>
+    <path d="M145 116h14" stroke="#9ff6ff" stroke-width="2"/>
+  </g>
+  <g transform="translate(160,3)">
+    <use href="#marine-fire-base"/>
+    <path d="M145 115h20" stroke="#9ff6ff" stroke-width="2"/>
+    <path d="M166 112l10 3-10 3z" fill="#fff09f"/>
+  </g>
+  <g transform="translate(320,3)">
+    <use href="#marine-fire-base"/>
+    <path d="M145 114h24" stroke="#9ff6ff" stroke-width="2"/>
+    <path d="M169 109l16 6-16 6z" fill="#ffd56f"/>
+  </g>
+  <g transform="translate(480,2)">
+    <use href="#marine-fire-base"/>
+    <path d="M145 114h18" stroke="#9ff6ff" stroke-width="2"/>
+    <path d="M164 111l11 4-11 4z" fill="#ffbf58"/>
+  </g>
+  <g transform="translate(640,1)">
+    <use href="#marine-fire-base"/>
+    <path d="M145 115h12" stroke="#9ff6ff" stroke-width="2"/>
+  </g>
+  <g transform="translate(800,1)">
+    <use href="#marine-fire-base"/>
+  </g>
+</svg>

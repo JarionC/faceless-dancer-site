@@ -38,11 +38,11 @@ export interface SavedBeatSummary {
   lyricsEnabled?: boolean;
   enabled?: boolean;
   songTitle?: string;
-  availableGameModes?: Array<"step_arrows" | "orb_beat">;
+  availableGameModes?: Array<"step_arrows" | "orb_beat" | "laser_shoot">;
   availableDifficulties?: Array<"easy" | "normal" | "hard">;
   difficultyBeatCounts?: Partial<Record<"easy" | "normal" | "hard", number>>;
   modeDifficultyBeatCounts?: Partial<
-    Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", number>>>
+    Record<"step_arrows" | "orb_beat" | "laser_shoot", Partial<Record<"easy" | "normal" | "hard", number>>>
   >;
   hasLegacyNormalChartOnly?: boolean;
 }
@@ -526,7 +526,7 @@ export async function readSeparatedLogTail(
 export async function saveGameBeatsForEntry(
   id: string,
   payload: {
-    gameMode?: "step_arrows" | "orb_beat";
+    gameMode?: "step_arrows" | "orb_beat" | "laser_shoot";
     difficulty?: "easy" | "normal" | "hard";
     gameBeats: unknown[];
     gameNotes?: unknown[];

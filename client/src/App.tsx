@@ -3,6 +3,7 @@ import { useSession } from "./hooks/useSession";
 import { HomePage } from "./pages/HomePage";
 import { AdminGamePage } from "./pages/AdminGamePage";
 import { GamePage } from "./pages/GamePage";
+import { PlaygroundPage } from "./pages/PlaygroundPage";
 
 function currentPath(): string {
   return window.location.pathname || "/";
@@ -36,6 +37,10 @@ export function App() {
         refreshSession={refreshSession}
       />
     );
+  }
+
+  if (path === "/playground") {
+    return <PlaygroundPage />;
   }
 
   return (

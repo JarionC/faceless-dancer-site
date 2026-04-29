@@ -709,11 +709,11 @@ router.get("/api/public/songs/enabled", async (req, res) => {
     majorBeatCount: number;
     gameBeatCount: number;
     coverImageUrl: string | null;
-    availableGameModes: Array<"step_arrows" | "orb_beat">;
+    availableGameModes: Array<"step_arrows" | "orb_beat" | "laser_shoot">;
     availableDifficulties: Array<"easy" | "normal" | "hard">;
     difficultyBeatCounts: Partial<Record<"easy" | "normal" | "hard", number>>;
     modeDifficultyBeatCounts: Partial<
-      Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", number>>>
+      Record<"step_arrows" | "orb_beat" | "laser_shoot", Partial<Record<"easy" | "normal" | "hard", number>>>
     >;
   }> = [];
   for (const song of enabledSongs) {
@@ -831,7 +831,7 @@ router.post("/api/scores/song/:entryId", requireAuth, requireHolder, async (req,
 
   const body = req.body as {
     displayName: string;
-    gameMode?: "step_arrows" | "orb_beat";
+    gameMode?: "step_arrows" | "orb_beat" | "laser_shoot";
     difficulty?: "easy" | "normal" | "hard";
     score: number;
     maxCombo?: number;

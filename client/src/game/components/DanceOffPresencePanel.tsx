@@ -16,7 +16,7 @@ interface DanceOffPresencePanelProps {
 
 interface CreateRequestDetail {
   beatEntryId: string;
-  gameMode: "step_arrows" | "orb_beat";
+  gameMode: "step_arrows" | "orb_beat" | "laser_shoot";
   difficulty: "easy" | "normal" | "hard";
 }
 
@@ -75,6 +75,12 @@ function formatClock(totalSeconds: number): string {
 
 function findSelfParticipant(danceOff: DanceOffPayload, publicKey: string) {
   return danceOff.participants.find((participant) => participant.publicKey === publicKey) ?? null;
+}
+
+function formatGameMode(gameMode: CreateRequestDetail["gameMode"]): string {
+  if (gameMode === "orb_beat") return "Orb Beat";
+  if (gameMode === "laser_shoot") return "Laser Shoot";
+  return "Step Arrows";
 }
 
 export function DanceOffPresencePanel({ open, session, apiBaseUrl, onClose }: DanceOffPresencePanelProps): JSX.Element | null {
@@ -625,7 +631,7 @@ export function DanceOffPresencePanel({ open, session, apiBaseUrl, onClose }: Da
                   return (
                     <article key={danceOff.id} className="danceoff-user danceoff-offer">
                       <div className="danceoff-user__title-row">
-                        <strong>{danceOff.gameMode === "orb_beat" ? "Orb Beat" : "Step Arrows"} | {danceOff.difficulty}</strong>
+                        <strong>{formatGameMode(danceOff.gameMode)} | {danceOff.difficulty}</strong>
                         <span className="badge ok">{danceOff.status}</span>
                       </div>
                       <p className="small">Song: {songTitle}</p>
@@ -673,7 +679,7 @@ export function DanceOffPresencePanel({ open, session, apiBaseUrl, onClose }: Da
         <div className="danceoff-modal" role="dialog" aria-modal="true" onClick={() => setCreateRequest(null)}>
           <div className="danceoff-modal__card" onClick={(event) => event.stopPropagation()}>
             <h3>Create Dance-Off</h3>
-            <p className="small">{createRequest.gameMode === "orb_beat" ? "Orb Beat" : "Step Arrows"} | {createRequest.difficulty}</p>
+            <p className="small">{formatGameMode(createRequest.gameMode)} | {createRequest.difficulty}</p>
             <label>
               Competitors (1-3)
               <input

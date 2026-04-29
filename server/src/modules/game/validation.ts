@@ -29,7 +29,7 @@ export interface SaveMajorBeatsPayload {
 }
 
 export interface SaveGameBeatsPayload {
-  gameMode?: "step_arrows" | "orb_beat";
+  gameMode?: "step_arrows" | "orb_beat" | "laser_shoot";
   difficulty?: "easy" | "normal" | "hard";
   gameBeats: Array<{ timeSeconds: number; strength: number }>;
   gameBeatSelections?: Array<{
@@ -49,7 +49,7 @@ export interface SaveGameBeatsPayload {
 
 export interface SaveScorePayload {
   displayName: string;
-  gameMode?: "step_arrows" | "orb_beat";
+  gameMode?: "step_arrows" | "orb_beat" | "laser_shoot";
   difficulty?: "easy" | "normal" | "hard";
   score: number;
   maxCombo?: number;
@@ -167,7 +167,7 @@ export function validateGameBeatsPayload(payload: unknown): string | null {
 
   const body = payload as Record<string, unknown>;
   if (body.gameMode !== undefined && !isGameMode(body.gameMode)) {
-    return "gameMode must be one of step_arrows or orb_beat.";
+    return "gameMode must be one of step_arrows, orb_beat, or laser_shoot.";
   }
   if (body.difficulty !== undefined && !isGameDifficulty(body.difficulty)) {
     return "difficulty must be one of easy, normal, or hard.";
@@ -224,7 +224,7 @@ export function validateSaveScorePayload(payload: unknown): string | null {
     return "displayName is required.";
   }
   if (body.gameMode !== undefined && !isGameMode(body.gameMode)) {
-    return "gameMode must be one of step_arrows or orb_beat.";
+    return "gameMode must be one of step_arrows, orb_beat, or laser_shoot.";
   }
   if (body.difficulty !== undefined && !isGameDifficulty(body.difficulty)) {
     return "difficulty must be one of easy, normal, or hard.";

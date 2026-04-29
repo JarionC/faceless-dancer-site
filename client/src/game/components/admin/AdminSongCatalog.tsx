@@ -9,11 +9,11 @@ interface EntryRow {
   songCoverImageFileName?: string | null;
   gameBeatCount?: number;
   majorBeatCount?: number;
-  availableGameModes?: Array<"step_arrows" | "orb_beat">;
+  availableGameModes?: Array<"step_arrows" | "orb_beat" | "laser_shoot">;
   availableDifficulties?: Array<"easy" | "normal" | "hard">;
   difficultyBeatCounts?: Partial<Record<"easy" | "normal" | "hard", number>>;
   modeDifficultyBeatCounts?: Partial<
-    Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", number>>>
+    Record<"step_arrows" | "orb_beat" | "laser_shoot", Partial<Record<"easy" | "normal" | "hard", number>>>
   >;
   hasLegacyNormalChartOnly?: boolean;
   lyricsSegmentCount?: number;

@@ -139,6 +139,18 @@ const beatArrowImages: Record<StepArrowLane, string> = {
   up: "/game-graphics/beats/up.png",
   right: "/game-graphics/beats/right.png"
 };
+const laserControlImages: Record<StepArrowLane, string> = {
+  left: "/game-graphics/controls/left.png",
+  down: "/game-graphics/controls/down.png",
+  up: "/game-graphics/controls/up.png",
+  right: "/game-graphics/controls/right.png"
+};
+const laserTargetImages: Record<StepArrowLane, string> = {
+  left: "/game-graphics/beats/left.png",
+  down: "/game-graphics/beats/down.png",
+  up: "/game-graphics/beats/up.png",
+  right: "/game-graphics/beats/right.png"
+};
 const orbControlLabels: Record<OrbBeatLane, string> = {
   l1: "L1",
   l2: "L2",
@@ -149,7 +161,9 @@ const orbControlLabels: Record<OrbBeatLane, string> = {
 };
 
 function formatGameModeLabel(gameMode: GameMode): string {
-  return gameMode === "orb_beat" ? "Orb Beat" : "Step Arrows";
+  if (gameMode === "orb_beat") return "Orb Beat";
+  if (gameMode === "laser_shoot") return "Laser Shoot";
+  return "Step Arrows";
 }
 const HOLD_MIN_SECONDS = 0.14;
 const HOLD_BONUS_POINTS = 120;
@@ -278,6 +292,13 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     canExit: boolean;
     details: string[];
   }>({ visible: false, score: 0, percentage: 0, rank: null, message: "", canExit: true, details: [] });
+  const [alienHealth, setAlienHealth] = useState(100);
+  const [alienHitFlash, setAlienHitFlash] = useState(false);
+  const [marineFiring, setMarineFiring] = useState(false);
+  const [laserShotFx, setLaserShotFx] = useState<{ id: number; lane: StepArrowLane; hit: boolean } | null>(null);
+  const laserShotIdRef = useRef(0);
+  const alienHitTimeoutRef = useRef<number | null>(null);
+  const marineFireTimeoutRef = useRef<number | null>(null);
   const windows = useMemo(() => {
     const perfect = runtimeConfig.gamePerfectWindowSeconds;
     const great = Math.max(perfect, runtimeConfig.gameGreatWindowSeconds);
@@ -372,7 +393,10 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     const baseEntry: SavedBeatEntry =
       chart && (chart.gameBeats?.length ?? 0) > 0
         ? buildFallbackEntryFromBeats(chartedEntry, chart.gameBeats ?? [], gameMode)
-        : analysis && analysis.length > 0 && gameMode === "step_arrows" && difficulty === "normal"
+        : analysis &&
+            analysis.length > 0 &&
+            (gameMode === "step_arrows" || gameMode === "laser_shoot") &&
+            difficulty === "normal"
           ? buildFallbackEntryFromBeats(chartedEntry, analysis, gameMode)
           : chartedEntry;
     notesRef.current = buildGameNotesFromEntry(baseEntry, gameMode).map((note) => ({
@@ -388,6 +412,10 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     heldLanesRef.current = createLaneState();
     setHeldLanes(createLaneState());
     setPressedLanes(createLaneState());
+    setAlienHealth(100);
+    setAlienHitFlash(false);
+    setMarineFiring(false);
+    setLaserShotFx(null);
   };
 
   const tick = (): void => {
@@ -1099,6 +1127,15 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
 
   const handleLaneInput = (lane: GameLane): void => {
     if (phase !== "running") return;
+    const isLaserMode = selectedGameMode === "laser_shoot";
+    const isStepLane = stepArrowLaneOrder.includes(lane as StepArrowLane);
+    if (isLaserMode && isStepLane) {
+      setMarineFiring(true);
+      if (marineFireTimeoutRef.current !== null) {
+        window.clearTimeout(marineFireTimeoutRef.current);
+      }
+      marineFireTimeoutRef.current = window.setTimeout(() => setMarineFiring(false), 130);
+    }
     heldLanesRef.current = { ...heldLanesRef.current, [lane]: true };
     setHeldLanes((prev) => ({ ...prev, [lane]: true }));
     setPressedLanes((prev) => ({ ...prev, [lane]: true }));
@@ -1119,6 +1156,13 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     }
     if (!candidate) {
       applyJudgement("miss");
+      if (isLaserMode && isStepLane) {
+        setLaserShotFx({
+          id: ++laserShotIdRef.current,
+          lane: lane as StepArrowLane,
+          hit: false,
+        });
+      }
       return;
     }
     const judgement = classifyJudgement(heardTime - candidate.timeSeconds, windows);
@@ -1126,7 +1170,33 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
     if (judgement === "miss") {
       candidate.judged = true;
       applyJudgement("miss");
+      if (isLaserMode && isStepLane) {
+        setLaserShotFx({
+          id: ++laserShotIdRef.current,
+          lane: lane as StepArrowLane,
+          hit: false,
+        });
+      }
       return;
+    }
+    if (isLaserMode && isStepLane) {
+      const damageByJudgement: Record<Exclude<Judgement, "miss">, number> = {
+        perfect: 10,
+        great: 7,
+        good: 4,
+        poor: 2,
+      };
+      setLaserShotFx({
+        id: ++laserShotIdRef.current,
+        lane: lane as StepArrowLane,
+        hit: true,
+      });
+      setAlienHealth((value) => Math.max(0, value - damageByJudgement[judgement]));
+      setAlienHitFlash(true);
+      if (alienHitTimeoutRef.current !== null) {
+        window.clearTimeout(alienHitTimeoutRef.current);
+      }
+      alienHitTimeoutRef.current = window.setTimeout(() => setAlienHitFlash(false), 180);
     }
     applyJudgement(judgement);
     if (!isHold) {
@@ -1174,6 +1244,8 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
       stopLoop();
       stopCountdown();
       if (judgementTimeoutRef.current !== null) window.clearTimeout(judgementTimeoutRef.current);
+      if (alienHitTimeoutRef.current !== null) window.clearTimeout(alienHitTimeoutRef.current);
+      if (marineFireTimeoutRef.current !== null) window.clearTimeout(marineFireTimeoutRef.current);
       engine.dispose().catch(() => undefined);
       engineRef.current = null;
     };
@@ -1224,7 +1296,10 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
       void startDanceOffMatch({
         id: detail.id,
         beatEntryId: detail.beatEntryId,
-        gameMode: detail.gameMode === "orb_beat" ? "orb_beat" : "step_arrows",
+        gameMode:
+          detail.gameMode === "orb_beat" || detail.gameMode === "laser_shoot"
+            ? detail.gameMode
+            : "step_arrows",
         difficulty: detail.difficulty === "easy" || detail.difficulty === "hard" ? detail.difficulty : "normal",
       });
     };
@@ -1618,7 +1693,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
                     loadingEntry ||
                     ((selectedSongSummary?.modeDifficultyBeatCounts?.[selectedGameMode]?.[selectedDifficulty] ?? 0) <= 0 &&
                       !(
-                        selectedGameMode === "step_arrows" &&
+                        (selectedGameMode === "step_arrows" || selectedGameMode === "laser_shoot") &&
                         selectedDifficulty === "normal" &&
                         (selectedSongSummary?.majorBeatCount ?? 0) > 0
                       ))
@@ -1636,7 +1711,7 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
                     loadingEntry ||
                     ((selectedSongSummary?.modeDifficultyBeatCounts?.[selectedGameMode]?.[selectedDifficulty] ?? 0) <= 0 &&
                       !(
-                        selectedGameMode === "step_arrows" &&
+                        (selectedGameMode === "step_arrows" || selectedGameMode === "laser_shoot") &&
                         selectedDifficulty === "normal" &&
                         (selectedSongSummary?.majorBeatCount ?? 0) > 0
                       ))
@@ -1706,7 +1781,15 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
 
   return (
     <section className="game-view-shell game-mode-active">
-      <div className={`ddr-field${selectedGameMode === "orb_beat" ? ` orb-field${isLandscape ? " landscape" : " portrait"}` : ""}`}>
+      <div
+        className={`ddr-field${
+          selectedGameMode === "orb_beat"
+            ? ` orb-field${isLandscape ? " landscape" : " portrait"}`
+            : selectedGameMode === "laser_shoot"
+              ? " laser-field"
+              : ""
+        }`}
+      >
         <div className="game-play-overlay">
           <div className="game-play-topbar">
             <button type="button" className="secondary game-play-exit" onClick={() => goToMenu()}>Exit</button>
@@ -1734,7 +1817,64 @@ export function GameView({ apiBaseUrl, canSubmitHolderScore, holderPublicKey, ho
         </div>
 
         <div className="game-play-stage">
-          {selectedGameMode === "orb_beat" ? (
+          {selectedGameMode === "laser_shoot" ? (
+            <>
+              <div className="laser-stars" />
+              <div className={`laser-alien-wrap${alienHealth <= 0 ? " defeated" : ""}${alienHitFlash ? " hit-flash" : ""}`}>
+                <img src="/game-graphics/laser-shoot/alien.svg" alt="Alien target" className="laser-alien-sprite" draggable={false} />
+                <div className="laser-alien-hp">
+                  <div className="laser-alien-hp-fill" style={{ width: `${alienHealth}%` }} />
+                </div>
+              </div>
+              <div className="laser-lanes">
+                {stepArrowLaneOrder.map((lane) => (
+                  <div key={lane} className={`laser-lane lane-${lane}`}>
+                    {visibleNotes.filter((note) => note.lane === lane).map((note) => {
+                      const timeUntilHit = note.timeSeconds - currentTimeSeconds;
+                      const progress = 1 - timeUntilHit / Math.max(0.05, runtimeConfig.gameApproachSeconds);
+                      const topPercent = -6 + progress * 86;
+                      const isHold = note.type === "hold" && note.endSeconds - note.timeSeconds >= HOLD_MIN_SECONDS;
+                      return (
+                        <div
+                          key={note.id}
+                          className={`laser-note lane-${note.lane}${note.judged ? " judged" : ""}${isHold ? " hold-note" : ""}`}
+                          style={{ top: `${topPercent}%` }}
+                        >
+                          <img src={laserTargetImages[note.lane as StepArrowLane]} alt="" draggable={false} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+              {laserShotFx ? (
+                <div key={`laser-shot-${laserShotFx.id}`} className={`laser-beam lane-${laserShotFx.lane} ${laserShotFx.hit ? "hit" : "miss"}`}>
+                  <span className="laser-beam-core" />
+                </div>
+              ) : null}
+              <div className={`laser-marine${marineFiring ? " firing" : ""}`}>
+                <img src="/game-graphics/laser-shoot/marine.svg" alt="Space marine" className="laser-marine-sprite" draggable={false} />
+              </div>
+              <div className="laser-controls">
+                {stepArrowLaneOrder.map((lane) => (
+                  <button
+                    key={lane}
+                    type="button"
+                    disabled={phase !== "running"}
+                    className={`laser-control lane-${lane}${pressedLanes[lane] ? " pressed" : ""}${heldLanes[lane] ? " held" : ""}`}
+                    onMouseDown={() => handleLaneMouseDown(lane)}
+                    onMouseUp={() => releaseLane(lane)}
+                    onMouseLeave={() => releaseLane(lane)}
+                    onTouchStart={(event) => handleLaneTouchStart(event, lane)}
+                    onTouchEnd={() => releaseLane(lane)}
+                    onTouchCancel={() => releaseLane(lane)}
+                  >
+                    <img src={laserControlImages[lane]} alt="" draggable={false} />
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : selectedGameMode === "orb_beat" ? (
             <>
               <div className="orb-core" />
               <div className="orb-lanes">

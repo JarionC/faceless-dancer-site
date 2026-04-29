@@ -68,7 +68,7 @@ export async function withTransaction<T>(fn: (client: SqlClient) => Promise<T>):
 export async function createDanceOff(client: SqlClient, params: {
   ownerUserId: string;
   beatEntryId: string;
-  gameMode: "step_arrows" | "orb_beat";
+  gameMode: "step_arrows" | "orb_beat" | "laser_shoot";
   difficulty: "easy" | "normal" | "hard";
   requiredPlayerCount: number;
 }): Promise<DanceOffRecord> {

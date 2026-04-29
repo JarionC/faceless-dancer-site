@@ -77,6 +77,13 @@ export interface RuntimeConfig {
   gameGoodWindowSeconds: number;
   gamePoorWindowSeconds: number;
   menuPreviewStartSeconds: number;
+  playgroundMeydaBufferSize: number;
+  playgroundFeatureSmoothing: number;
+  playgroundBeatPulseDecay: number;
+  playgroundBeatLookaheadSeconds: number;
+  playgroundBeatLookbackSeconds: number;
+  playgroundBeatStrengthBoost: number;
+  playgroundDefaultMode: "prism_bloom" | "nebula_ribbons" | "pulse_tunnel" | "lattice_dream";
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
@@ -109,6 +116,16 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
     return false;
   }
   return fallback;
+}
+
+function parsePlaygroundMode(
+  value: string | undefined
+): "prism_bloom" | "nebula_ribbons" | "pulse_tunnel" | "lattice_dream" {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "nebula_ribbons") return "nebula_ribbons";
+  if (normalized === "pulse_tunnel") return "pulse_tunnel";
+  if (normalized === "lattice_dream") return "lattice_dream";
+  return "prism_bloom";
 }
 
 export const runtimeConfig: RuntimeConfig = {
@@ -496,5 +513,40 @@ export const runtimeConfig: RuntimeConfig = {
     0,
     0,
     600
-  )
+  ),
+  playgroundMeydaBufferSize: parsePositiveInt(
+    import.meta.env.VITE_PLAYGROUND_MEYDA_BUFFER_SIZE,
+    1024
+  ),
+  playgroundFeatureSmoothing: parseClampedNumber(
+    import.meta.env.VITE_PLAYGROUND_FEATURE_SMOOTHING,
+    0.82,
+    0,
+    0.999
+  ),
+  playgroundBeatPulseDecay: parseClampedNumber(
+    import.meta.env.VITE_PLAYGROUND_BEAT_PULSE_DECAY,
+    0.92,
+    0.7,
+    0.999
+  ),
+  playgroundBeatLookaheadSeconds: parseClampedNumber(
+    import.meta.env.VITE_PLAYGROUND_BEAT_LOOKAHEAD_SECONDS,
+    0.03,
+    0,
+    0.2
+  ),
+  playgroundBeatLookbackSeconds: parseClampedNumber(
+    import.meta.env.VITE_PLAYGROUND_BEAT_LOOKBACK_SECONDS,
+    0.04,
+    0,
+    0.25
+  ),
+  playgroundBeatStrengthBoost: parseClampedNumber(
+    import.meta.env.VITE_PLAYGROUND_BEAT_STRENGTH_BOOST,
+    1.1,
+    0,
+    2.5
+  ),
+  playgroundDefaultMode: parsePlaygroundMode(import.meta.env.VITE_PLAYGROUND_DEFAULT_MODE)
 };

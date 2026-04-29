@@ -61,11 +61,11 @@ export interface SavedBeatSummary {
   lyricsSegmentCount?: number;
   lyricsWordCount?: number;
   lyricsEnabled?: boolean;
-  availableGameModes?: Array<"step_arrows" | "orb_beat">;
+  availableGameModes?: Array<"step_arrows" | "orb_beat" | "laser_shoot">;
   availableDifficulties?: Array<"easy" | "normal" | "hard">;
   difficultyBeatCounts?: Partial<Record<"easy" | "normal" | "hard", number>>;
   modeDifficultyBeatCounts?: Partial<
-    Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", number>>>
+    Record<"step_arrows" | "orb_beat" | "laser_shoot", Partial<Record<"easy" | "normal" | "hard", number>>>
   >;
   hasLegacyNormalChartOnly?: boolean;
 }
@@ -85,7 +85,7 @@ export interface DifficultyChart {
     minStrength?: number;
   }>;
   gameBeatConfig?: {
-    gameMode?: "step_arrows" | "orb_beat";
+    gameMode?: "step_arrows" | "orb_beat" | "laser_shoot";
     mergeWindowSeconds?: number;
     laneStrengthThresholds?: Record<SourceName, number>;
     analysisOverrides?: Record<string, number | boolean>;
@@ -128,7 +128,7 @@ export interface SavedBeatEntry {
     minStrength?: number;
   }>;
   gameBeatConfig?: {
-    gameMode?: "step_arrows" | "orb_beat";
+    gameMode?: "step_arrows" | "orb_beat" | "laser_shoot";
     mergeWindowSeconds?: number;
     laneStrengthThresholds?: Record<SourceName, number>;
     analysisOverrides?: Record<string, number | boolean>;
@@ -136,13 +136,13 @@ export interface SavedBeatEntry {
   gameBeatsUpdatedAtIso?: string;
   difficultyCharts?: Partial<Record<"easy" | "normal" | "hard", DifficultyChart>>;
   modeDifficultyCharts?: Partial<
-    Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", DifficultyChart>>>
+    Record<"step_arrows" | "orb_beat" | "laser_shoot", Partial<Record<"easy" | "normal" | "hard", DifficultyChart>>>
   >;
-  availableGameModes?: Array<"step_arrows" | "orb_beat">;
+  availableGameModes?: Array<"step_arrows" | "orb_beat" | "laser_shoot">;
   availableDifficulties?: Array<"easy" | "normal" | "hard">;
   difficultyBeatCounts?: Partial<Record<"easy" | "normal" | "hard", number>>;
   modeDifficultyBeatCounts?: Partial<
-    Record<"step_arrows" | "orb_beat", Partial<Record<"easy" | "normal" | "hard", number>>>
+    Record<"step_arrows" | "orb_beat" | "laser_shoot", Partial<Record<"easy" | "normal" | "hard", number>>>
   >;
   hasLegacyNormalChartOnly?: boolean;
 }

@@ -7,11 +7,13 @@ dotenv.config({ path: path.resolve(process.cwd(), "..", ".env") });
 dotenv.config({ path: path.resolve(process.cwd(), "..", ".env.docker") });
 
 const optionalUrlSchema = z.union([z.string().url(), z.literal("")]).default("");
+const defaultClientDevPort = process.env.CLIENT_DEV_PORT ?? "5173";
+const defaultWorkerPort = process.env.SEPARATION_WORKER_PORT ?? "8792";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(3001),
-  CLIENT_ORIGIN: z.string().default("http://localhost:5173"),
+  CLIENT_ORIGIN: z.string().default(`http://localhost:${defaultClientDevPort}`),
 
   DATABASE_URL: z.string().url(),
   DATABASE_SSL_REJECT_UNAUTHORIZED: z.enum(["true", "false"]).default("false"),
@@ -55,7 +57,7 @@ const envSchema = z.object({
   BEAT_BUNNY_PREFIX: z.string().default("beat-storage"),
   BEAT_LOCAL_CACHE_DIR: z.string().default("./server/beat-storage-cache"),
   BEAT_API_MAX_BODY_BYTES: z.coerce.number().int().positive().default(50 * 1024 * 1024),
-  BEAT_SEPARATION_WORKER_URL: z.string().url().default("http://separation-worker:8792"),
+  BEAT_SEPARATION_WORKER_URL: z.string().url().default(`http://separation-worker:${defaultWorkerPort}`),
   BEAT_SEPARATION_LOG_TAIL_LINES: z.coerce.number().int().positive().default(300),
   BEAT_PREVIEW_OFFSET_SECONDS: z.coerce.number().nonnegative().default(30),
   BEAT_PREVIEW_DURATION_SECONDS: z.coerce.number().positive().default(15),

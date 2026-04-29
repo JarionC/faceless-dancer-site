@@ -2,12 +2,13 @@ services:
   redis:
     image: redis:7-alpine
     container_name: faceless-dancer-redis
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--port", "${REDIS_PORT:-6379}"]
     restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
     container_name: faceless-dancer-postgres
+    command: ["postgres", "-c", "port=${POSTGRES_PORT:-5432}"]
     environment:
       POSTGRES_DB: faceless_dancer
       POSTGRES_USER: postgres
@@ -15,7 +16,7 @@ services:
     volumes:
       - ${POSTGRES_HOST_PATH:-/var/lib/faceless-dancer/postgres}:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:55432:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-55432}:${POSTGRES_PORT:-5432}"
     restart: unless-stopped
 
   separation-worker:
@@ -56,9 +57,10 @@ services:
     env_file:
       - ./.env
     environment:
-      DATABASE_URL: "${DATABASE_URL_DOCKER:-postgresql://postgres:postgres@postgres:5432/faceless_dancer}"
-      BEAT_SEPARATION_WORKER_URL: http://separation-worker:8792
-      DANCEOFF_REDIS_URL: "${DANCEOFF_REDIS_URL:-redis://redis:6379}"
+      PORT: "${PORT:-3001}"
+      DATABASE_URL: "${DATABASE_URL_DOCKER:-postgresql://postgres:postgres@postgres:${POSTGRES_PORT:-5432}/faceless_dancer}"
+      BEAT_SEPARATION_WORKER_URL: "http://separation-worker:${SEPARATION_WORKER_PORT:-8792}"
+      DANCEOFF_REDIS_URL: "${DANCEOFF_REDIS_URL:-redis://redis:${REDIS_PORT:-6379}}"
       DANCEOFF_REDIS_USERNAME: "${DANCEOFF_REDIS_USERNAME:-}"
       DANCEOFF_REDIS_PASSWORD: "${DANCEOFF_REDIS_PASSWORD:-}"
       DANCEOFF_REDIS_TLS: "${DANCEOFF_REDIS_TLS:-false}"
@@ -66,7 +68,7 @@ services:
     volumes:
       - ${BEAT_STORAGE_HOST_PATH:-/var/lib/faceless-dancer/beat-storage}:/app/beat-storage
     ports:
-      - "127.0.0.1:3001:3001"
+      - "127.0.0.1:${PORT:-3001}:${PORT:-3001}"
     restart: unless-stopped
 
   client:
@@ -76,6 +78,8 @@ services:
     container_name: faceless-dancer-client
     depends_on:
       - server
+    environment:
+      SERVER_PORT: "${PORT:-3001}"
     ports:
-      - "127.0.0.1:8080:80"
+      - "127.0.0.1:${CLIENT_DOCKER_PORT:-8080}:80"
     restart: unless-stopped

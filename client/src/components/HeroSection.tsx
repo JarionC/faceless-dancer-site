@@ -38,6 +38,9 @@ export function HeroSection({ settings }: Props) {
           <a className="cta-button" href="/game">
             Play The Game
           </a>
+          <a className="cta-button" href="/playground">
+            Faceless Playground
+          </a>
           {settings.pumpFunUrl ? (
             <a
               className="ghost-link"

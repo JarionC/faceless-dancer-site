@@ -313,7 +313,7 @@ export async function createDanceOffSocketServer(httpServer: HttpServer): Promis
       async (
         payload: {
           beatEntryId?: string;
-          gameMode?: "step_arrows" | "orb_beat";
+          gameMode?: "step_arrows" | "orb_beat" | "laser_shoot";
           difficulty?: "easy" | "normal" | "hard";
           competitors?: number;
         } | null | undefined,
@@ -321,7 +321,10 @@ export async function createDanceOffSocketServer(httpServer: HttpServer): Promis
       ) => {
         try {
           const beatEntryId = String(payload?.beatEntryId ?? "").trim();
-          const gameMode = payload?.gameMode === "orb_beat" ? "orb_beat" : "step_arrows";
+          const gameMode =
+            payload?.gameMode === "orb_beat" || payload?.gameMode === "laser_shoot"
+              ? payload.gameMode
+              : "step_arrows";
           const difficulty = payload?.difficulty === "easy" || payload?.difficulty === "hard" ? payload.difficulty : "normal";
           const competitors = Math.max(1, Math.min(3, Math.floor(Number(payload?.competitors ?? 1))));
           if (!beatEntryId) {

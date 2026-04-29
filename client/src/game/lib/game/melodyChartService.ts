@@ -210,6 +210,9 @@ export function buildGameNotesFromEntry(
   if (mode === "orb_beat") {
     return buildOrbBeatNotes(entry);
   }
+  if (mode === "laser_shoot") {
+    return buildStepArrowNotes(entry);
+  }
   return buildStepArrowNotes(entry);
 }
 

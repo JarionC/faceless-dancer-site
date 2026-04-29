@@ -1,5 +1,5 @@
 export const GAME_DIFFICULTIES = ["easy", "normal", "hard"] as const;
-export const GAME_MODES = ["step_arrows", "orb_beat"] as const;
+export const GAME_MODES = ["step_arrows", "orb_beat", "laser_shoot"] as const;
 
 export type GameDifficulty = (typeof GAME_DIFFICULTIES)[number];
 export type GameMode = (typeof GAME_MODES)[number];
@@ -132,6 +132,12 @@ export function getModeDifficultyChart(
   const explicit = charts[mode]?.[difficulty];
   if (explicit) {
     return explicit;
+  }
+  if (mode === "laser_shoot") {
+    const mirrored = charts.step_arrows?.[difficulty];
+    if (mirrored) {
+      return mirrored;
+    }
   }
   if (mode === "step_arrows" && difficulty === "normal") {
     return getLegacyStepArrowsNormalChart(entry);

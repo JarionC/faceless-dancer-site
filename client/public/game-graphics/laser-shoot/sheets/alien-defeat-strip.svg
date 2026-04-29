@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1408 128">
+  <defs>
+    <g id="alien-defeat">
+      <ellipse cx="88" cy="118" rx="42" ry="8" fill="#08141e" opacity=".8"/>
+      <path d="M38 80c0-28 22-50 50-50s50 22 50 50v24H38z" fill="#3e7c58" stroke="#a6d9ba" stroke-width="2"/>
+      <ellipse cx="88" cy="84" rx="30" ry="20" fill="#95c29a" stroke="#a6d9ba" stroke-width="2"/>
+      <circle cx="69" cy="64" r="10" fill="#1a2c21" stroke="#a6d9ba" stroke-width="2"/>
+      <circle cx="107" cy="64" r="10" fill="#1a2c21" stroke="#a6d9ba" stroke-width="2"/>
+      <path d="M63 60l12 8M63 68l12-8M101 60l12 8M101 68l12-8" stroke="#f2a0a0" stroke-width="2"/>
+      <path d="M70 96c9-4 27-4 36 0" stroke="#213d2d" stroke-width="3" stroke-linecap="round"/>
+    </g>
+  </defs>
+
+  <g transform="translate(0,0)"><use href="#alien-defeat"/></g>
+  <g transform="translate(176,2)"><use href="#alien-defeat"/></g>
+  <g transform="translate(352,4)"><use href="#alien-defeat"/></g>
+  <g transform="translate(528,7)"><use href="#alien-defeat"/></g>
+  <g transform="translate(704,10)"><use href="#alien-defeat"/></g>
+  <g transform="translate(880,12)"><use href="#alien-defeat"/></g>
+  <g transform="translate(1056,13)"><use href="#alien-defeat"/></g>
+  <g transform="translate(1232,13)"><use href="#alien-defeat"/><ellipse cx="88" cy="118" rx="38" ry="7" fill="#1f3034"/></g>
+</svg>
