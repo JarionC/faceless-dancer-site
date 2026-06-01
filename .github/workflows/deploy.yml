@@ -50,6 +50,8 @@ jobs:
           target: ${{ secrets.VPS_APP_DIR }}
           rm: true
           strip_components: 0
+          timeout: 30m
+          command_timeout: 30m
 
       - name: Write .env on VPS
         uses: appleboy/ssh-action@v1.0.3
